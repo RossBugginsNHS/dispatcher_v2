@@ -2,33 +2,42 @@ import { describe, expect, it } from "vitest";
 
 import { fetchDispatchingConfig, type RepoContentsClient } from "../src/github/content.js";
 
-function makeClient(response: { data: unknown } | { throws: unknown }): RepoContentsClient {
+class HttpError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+function makeClient(response: { data: unknown } | { throws: Error }): RepoContentsClient {
   return {
     repos: {
-      getContent: async () => {
+      getContent: () => {
         if ("throws" in response) {
-          throw response.throws;
+          return Promise.reject(response.throws);
         }
-        return response as { data: { type: string; content: string; encoding: string } };
+        return Promise.resolve(response as { data: { type: string; content: string; encoding: string } });
       },
     },
   };
 }
 
 function makePathAwareClient(
-  responsesByPath: Record<string, { data: unknown } | { throws: unknown }>,
+  responsesByPath: Record<string, { data: unknown } | { throws: Error }>,
 ): RepoContentsClient {
   return {
     repos: {
-      getContent: async ({ path }) => {
+      getContent: ({ path }) => {
         const response = responsesByPath[path];
         if (!response) {
-          throw { status: 404, message: "Not Found" };
+          return Promise.reject(new HttpError("Not Found", 404));
         }
         if ("throws" in response) {
-          throw response.throws;
+          return Promise.reject(response.throws);
         }
-        return response as { data: { type: string; content: string; encoding: string } };
+        return Promise.resolve(response as { data: { type: string; content: string; encoding: string } });
       },
     },
   };
@@ -62,7 +71,7 @@ describe("fetchDispatchingConfig", () => {
   });
 
   it("returns found:false reason:missing when API returns 404", async () => {
-    const client = makeClient({ throws: { status: 404, message: "Not Found" } });
+    const client = makeClient({ throws: new HttpError("Not Found", 404) });
 
     const result = await fetchDispatchingConfig(client, "owner", "repo");
 
@@ -74,7 +83,7 @@ describe("fetchDispatchingConfig", () => {
 
   it("falls back to .github/dispatching.yml when root dispatching.yml is missing", async () => {
     const client = makePathAwareClient({
-      "dispatching.yml": { throws: { status: 404, message: "Not Found" } },
+      "dispatching.yml": { throws: new HttpError("Not Found", 404) },
       ".github/dispatching.yml": {
         data: { type: "file", content: encodeYaml(VALID_YAML), encoding: "base64" },
       },

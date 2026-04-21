@@ -62,11 +62,13 @@ describe("executeWorkflowDispatches", () => {
       ref: "main",
     });
 
-    expect(results).toEqual([
-      { target: targets[0], status: "success", attempts: 1 },
-      { target: targets[1], status: "failed", error: expect.any(Error), attempts: 1 },
-      { target: targets[2], status: "success", attempts: 1 },
-    ]);
+    expect(results).toHaveLength(3);
+    expect(results[0]).toEqual({ target: targets[0], status: "success", attempts: 1 });
+    expect(results[1]?.target).toEqual(targets[1]);
+    expect(results[1]?.status).toBe("failed");
+    expect(results[1]?.attempts).toBe(1);
+    expect(results[1]?.error).toBeInstanceOf(Error);
+    expect(results[2]).toEqual({ target: targets[2], status: "success", attempts: 1 });
   });
 
   it("retries transient status errors and eventually succeeds", async () => {

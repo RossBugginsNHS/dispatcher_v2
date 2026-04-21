@@ -39,7 +39,7 @@ export async function fetchDispatchingConfig(
         continue;
       }
 
-      const file = data as { type: string; content: string; encoding: string };
+      const file = data;
 
       if (file.type !== "file") {
         continue;

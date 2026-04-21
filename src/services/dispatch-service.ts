@@ -79,13 +79,13 @@ function isRetryableError(error: unknown): boolean {
     return false;
   }
 
-  const status = "status" in error ? Number((error as { status: unknown }).status) : undefined;
+  const status = "status" in error ? Number(error.status) : undefined;
 
   if (status !== undefined && [429, 500, 502, 503, 504].includes(status)) {
     return true;
   }
 
-  const code = "code" in error ? String((error as { code: unknown }).code) : undefined;
+  const code = "code" in error ? String(error.code) : undefined;
   return code === "ECONNRESET" || code === "ETIMEDOUT";
 }
 
