@@ -2,9 +2,11 @@ import type { FastifyInstance } from "fastify";
 import rawBody from "fastify-raw-body";
 import { Webhooks } from "@octokit/webhooks";
 
-type WorkflowRunCompletedHandler = (payload: unknown) => Promise<void> | void;
+import type { WorkflowRunPayload } from "./types.js";
 
-type RegisterGitHubWebhookHandlerOptions = {
+type WorkflowRunCompletedHandler = (payload: WorkflowRunPayload) => Promise<void> | void;
+
+export type RegisterGitHubWebhookHandlerOptions = {
   secret: string;
   onWorkflowRunCompleted?: WorkflowRunCompletedHandler;
 };

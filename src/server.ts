@@ -1,11 +1,12 @@
 import Fastify from "fastify";
 
 import { env } from "./config/env.js";
+import type { WorkflowRunPayload } from "./github/types.js";
 import { registerGitHubWebhookHandler } from "./github/webhook-handler.js";
 
 type BuildServerOptions = {
   githubWebhookSecret?: string;
-  onWorkflowRunCompleted?: (payload: unknown) => Promise<void> | void;
+  onWorkflowRunCompleted?: (payload: WorkflowRunPayload) => Promise<void> | void;
 };
 
 export async function buildServer(options: BuildServerOptions = {}) {
