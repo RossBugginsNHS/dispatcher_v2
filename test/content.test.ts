@@ -15,6 +15,25 @@ function makeClient(response: { data: unknown } | { throws: unknown }): RepoCont
   };
 }
 
+function makePathAwareClient(
+  responsesByPath: Record<string, { data: unknown } | { throws: unknown }>,
+): RepoContentsClient {
+  return {
+    repos: {
+      getContent: async ({ path }) => {
+        const response = responsesByPath[path];
+        if (!response) {
+          throw { status: 404, message: "Not Found" };
+        }
+        if ("throws" in response) {
+          throw response.throws;
+        }
+        return response as { data: { type: string; content: string; encoding: string } };
+      },
+    },
+  };
+}
+
 function encodeYaml(yaml: string): string {
   return Buffer.from(yaml).toString("base64");
 }
@@ -50,6 +69,22 @@ describe("fetchDispatchingConfig", () => {
     expect(result.found).toBe(false);
     if (!result.found) {
       expect(result.reason).toBe("missing");
+    }
+  });
+
+  it("falls back to .github/dispatching.yml when root dispatching.yml is missing", async () => {
+    const client = makePathAwareClient({
+      "dispatching.yml": { throws: { status: 404, message: "Not Found" } },
+      ".github/dispatching.yml": {
+        data: { type: "file", content: encodeYaml(VALID_YAML), encoding: "base64" },
+      },
+    });
+
+    const result = await fetchDispatchingConfig(client, "owner", "repo");
+
+    expect(result.found).toBe(true);
+    if (result.found) {
+      expect(result.config.outbound).toHaveLength(1);
     }
   });
 
