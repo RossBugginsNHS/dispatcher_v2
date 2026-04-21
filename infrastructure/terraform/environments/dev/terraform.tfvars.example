@@ -1,0 +1,22 @@
+aws_region     = "eu-west-2"
+project_name   = "dispatcher-v2"
+container_image = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/dispatcher-v2-dev-dispatcher:latest"
+github_app_id   = "123456"
+github_app_slug = "org-repo-workflows-runner-alpha"
+
+desired_count = 1
+cpu           = 256
+memory        = 512
+
+# Keep true to have Terraform create placeholder secrets in Secrets Manager.
+# Then update secret values manually or via CI after first apply.
+create_managed_secrets = true
+
+# If using existing secrets, set create_managed_secrets = false and fill these:
+# github_webhook_secret_arn  = "arn:aws:secretsmanager:...:secret:..."
+# github_app_private_key_arn = "arn:aws:secretsmanager:...:secret:..."
+
+# Optional HTTPS + DNS:
+# custom_domain_name  = "dispatcher-dev.example.com"
+# route53_zone_id     = "Z0123456789ABCDEF"
+# acm_certificate_arn = "arn:aws:acm:...:certificate/..."

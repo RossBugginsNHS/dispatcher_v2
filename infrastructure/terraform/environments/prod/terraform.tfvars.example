@@ -1,0 +1,16 @@
+aws_region      = "eu-west-2"
+project_name    = "dispatcher-v2"
+container_image = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/dispatcher-v2-prod-dispatcher:latest"
+github_app_id   = "123456"
+github_app_slug = "org-repo-workflows-runner-alpha"
+
+desired_count = 2
+cpu           = 512
+memory        = 1024
+
+create_managed_secrets = true
+
+# Strongly recommended for prod:
+# custom_domain_name  = "dispatcher.example.com"
+# route53_zone_id     = "Z0123456789ABCDEF"
+# acm_certificate_arn = "arn:aws:acm:...:certificate/..."
