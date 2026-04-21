@@ -10,7 +10,8 @@ locals {
     var.tags,
   )
 
-  has_custom_domain = var.custom_domain_name != null && var.route53_zone_id != null
+  has_custom_domain = var.custom_domain_name != null
+  has_route53_alias = var.custom_domain_name != null && var.route53_zone_id != null
   has_https         = var.acm_certificate_arn != null
 
   webhook_secret_arn = var.github_webhook_secret_arn != null ? var.github_webhook_secret_arn : (
@@ -342,10 +343,17 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
   }
+
+  lifecycle {
+    precondition {
+      condition     = var.custom_domain_name != null
+      error_message = "HTTPS requires custom_domain_name. You cannot use a valid TLS certificate for the raw ALB DNS hostname."
+    }
+  }
 }
 
 resource "aws_route53_record" "app" {
-  count = local.has_custom_domain ? 1 : 0
+  count = local.has_route53_alias ? 1 : 0
 
   zone_id = var.route53_zone_id
   name    = var.custom_domain_name
