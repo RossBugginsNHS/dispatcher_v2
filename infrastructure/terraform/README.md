@@ -66,6 +66,21 @@ Optional runtime identity pattern (local shell):
 
 - https://github.com/apps/org-repo-workflows-runner-alpha
 
+## Remote State Bootstrap
+
+Use the bootstrap helper to create Terraform backend resources (S3 state + DynamoDB lock table):
+
+  AWS_PROFILE=nhs-notify-admin ./bootstrap-backend.sh \
+    --bucket dispatcher-v2-tf-state \
+    --lock-table dispatcher-v2-tf-locks \
+    --region eu-west-2
+
+After running it:
+
+- Set GitHub variables `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_STATE_LOCK_TABLE`.
+- Migrate existing local dev state with `terraform init -migrate-state -force-copy`.
+- Initialize prod backend with `terraform init -reconfigure`.
+
 ## Notes
 
 - Runtime code must never run Terraform.

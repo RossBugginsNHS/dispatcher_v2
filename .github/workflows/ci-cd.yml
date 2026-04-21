@@ -116,7 +116,13 @@ jobs:
 
       - name: Terraform Init
         working-directory: infrastructure/terraform/environments/dev
-        run: terraform init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=dispatcher-v2/dev/terraform.tfstate" \
+            -backend-config="region=${{ vars.TF_STATE_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
 
       - name: Terraform Plan (Dev)
         working-directory: infrastructure/terraform/environments/dev
@@ -190,7 +196,13 @@ jobs:
 
       - name: Terraform Init
         working-directory: infrastructure/terraform/environments/prod
-        run: terraform init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=dispatcher-v2/prod/terraform.tfstate" \
+            -backend-config="region=${{ vars.TF_STATE_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
 
       - name: Terraform Plan (Prod)
         working-directory: infrastructure/terraform/environments/prod
