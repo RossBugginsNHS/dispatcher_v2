@@ -5,10 +5,20 @@ import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-m
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
 import type { WorkflowRunPayload } from "../github/types.js";
 import { authorizeDispatchTargets } from "./authorization-service.js";
+import { executeWorkflowDispatches, type DispatchActionsClient } from "./dispatch-service.js";
+import { createDispatchResultIssue, type IssueClient } from "./issue-service.js";
+
+type WorkflowRunHandlerOptions = {
+  defaultDispatchRef: string;
+  createIssues: boolean;
+};
+
+type WorkflowRunOctokitClient = RepoContentsClient & DispatchActionsClient & IssueClient;
 
 export function createWorkflowRunHandler(
   app: App,
   log: FastifyBaseLogger,
+  options: WorkflowRunHandlerOptions,
 ): (payload: WorkflowRunPayload) => Promise<void> {
   return async (payload: WorkflowRunPayload): Promise<void> => {
     const { repository, workflow_run, installation } = payload;
@@ -27,7 +37,7 @@ export function createWorkflowRunHandler(
       return;
     }
 
-    const octokit = (await app.getInstallationOctokit(installation.id)) as unknown as RepoContentsClient;
+    const octokit = (await app.getInstallationOctokit(installation.id)) as unknown as WorkflowRunOctokitClient;
 
     const result = await fetchDispatchingConfig(octokit, owner, repo);
 
@@ -81,6 +91,48 @@ export function createWorkflowRunHandler(
         deniedTargets: authorization.denied,
       },
       "Dispatch target authorization evaluated",
+    );
+
+    const dispatchRef = payload.workflow_run.head_branch ?? options.defaultDispatchRef;
+    const dispatches = await executeWorkflowDispatches(
+      octokit,
+      authorization.allowed,
+      dispatchRef,
+      log,
+    );
+
+    if (options.createIssues) {
+      try {
+        await createDispatchResultIssue(
+          octokit,
+          {
+            owner,
+            repo,
+            sourceWorkflow,
+            sourceWorkflowPath: workflow_run.path,
+            sourceRunId: workflow_run.id,
+            sourceRunUrl: workflow_run.html_url,
+            denied: authorization.denied,
+            dispatches,
+          },
+          log,
+        );
+      } catch (error) {
+        log.error({ err: error, owner, repo }, "Failed to create dispatch result issue");
+      }
+    }
+
+    log.info(
+      {
+        owner,
+        repo,
+        sourceWorkflow,
+        dispatchRef,
+        dispatchSuccessCount: dispatches.filter((item) => item.status === "success").length,
+        dispatchFailureCount: dispatches.filter((item) => item.status === "failed").length,
+        deniedCount: authorization.denied.length,
+      },
+      "Dispatch side effects completed",
     );
   };
 }

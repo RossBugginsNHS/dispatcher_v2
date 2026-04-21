@@ -18,7 +18,10 @@ async function start(): Promise<void> {
       appId: env.GITHUB_APP_ID,
       privateKey: env.GITHUB_APP_PRIVATE_KEY,
     });
-    dispatchHandler = createWorkflowRunHandler(githubApp, app.log);
+    dispatchHandler = createWorkflowRunHandler(githubApp, app.log, {
+      defaultDispatchRef: env.DEFAULT_DISPATCH_REF,
+      createIssues: env.CREATE_ISSUES,
+    });
   } else {
     app.log.warn("GITHUB_APP_ID or GITHUB_APP_PRIVATE_KEY not set; dispatching is disabled");
   }
