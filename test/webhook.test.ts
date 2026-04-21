@@ -56,6 +56,13 @@ describe("POST /webhooks/github", () => {
 
     expect(response.statusCode).toBe(202);
     expect(onWorkflowRunCompleted).toHaveBeenCalledTimes(1);
+    expect(onWorkflowRunCompleted).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        deliveryId: "delivery-2",
+        eventName: "workflow_run",
+      }),
+    );
 
     await app.close();
   });

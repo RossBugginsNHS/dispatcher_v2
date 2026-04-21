@@ -18,6 +18,12 @@ export type DispatchExecutionResult = {
   target: ResolvedDispatchTarget;
   status: "success" | "failed";
   error?: unknown;
+  attempts: number;
+};
+
+type DispatchExecutionOptions = {
+  maxRetries: number;
+  retryBaseDelayMs: number;
 };
 
 export async function executeWorkflowDispatches(
@@ -25,25 +31,66 @@ export async function executeWorkflowDispatches(
   targets: ResolvedDispatchTarget[],
   ref: string,
   log: FastifyBaseLogger,
+  options: DispatchExecutionOptions,
 ): Promise<DispatchExecutionResult[]> {
   const results: DispatchExecutionResult[] = [];
 
   for (const target of targets) {
-    try {
-      await client.actions.createWorkflowDispatch({
-        owner: target.owner,
-        repo: target.repo,
-        workflow_id: target.workflow,
-        ref,
-      });
+    let attempts = 0;
 
-      results.push({ target, status: "success" });
-      log.info({ target, ref }, "Workflow dispatch succeeded");
+    try {
+      while (true) {
+        attempts += 1;
+        try {
+          await client.actions.createWorkflowDispatch({
+            owner: target.owner,
+            repo: target.repo,
+            workflow_id: target.workflow,
+            ref,
+          });
+          break;
+        } catch (error) {
+          if (!isRetryableError(error) || attempts > options.maxRetries) {
+            throw error;
+          }
+
+          const delayMs = options.retryBaseDelayMs * 2 ** (attempts - 1);
+          log.warn(
+            { err: error, target, attempts, maxRetries: options.maxRetries, delayMs },
+            "Retrying workflow dispatch after transient failure",
+          );
+          await sleep(delayMs);
+        }
+      }
+
+      results.push({ target, status: "success", attempts });
+      log.info({ target, ref, attempts }, "Workflow dispatch succeeded");
     } catch (error) {
-      results.push({ target, status: "failed", error });
-      log.error({ err: error, target, ref }, "Workflow dispatch failed");
+      results.push({ target, status: "failed", error, attempts });
+      log.error({ err: error, target, ref, attempts }, "Workflow dispatch failed");
     }
   }
 
   return results;
+}
+
+function isRetryableError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const status = "status" in error ? Number((error as { status: unknown }).status) : undefined;
+
+  if (status !== undefined && [429, 500, 502, 503, 504].includes(status)) {
+    return true;
+  }
+
+  const code = "code" in error ? String((error as { code: unknown }).code) : undefined;
+  return code === "ECONNRESET" || code === "ETIMEDOUT";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

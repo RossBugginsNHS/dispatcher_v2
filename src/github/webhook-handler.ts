@@ -2,9 +2,12 @@ import type { FastifyInstance } from "fastify";
 import rawBody from "fastify-raw-body";
 import { Webhooks } from "@octokit/webhooks";
 
-import type { WorkflowRunPayload } from "./types.js";
+import type { WorkflowRunEventContext, WorkflowRunPayload } from "./types.js";
 
-type WorkflowRunCompletedHandler = (payload: WorkflowRunPayload) => Promise<void> | void;
+type WorkflowRunCompletedHandler = (
+  payload: WorkflowRunPayload,
+  context: WorkflowRunEventContext,
+) => Promise<void> | void;
 
 export type RegisterGitHubWebhookHandlerOptions = {
   secret: string;
@@ -24,7 +27,10 @@ export async function registerGitHubWebhookHandler(
 
   webhooks.on("workflow_run.completed", async ({ id, payload }) => {
     app.log.info({ deliveryId: id }, "Received workflow_run.completed event");
-    await options.onWorkflowRunCompleted?.(payload);
+    await options.onWorkflowRunCompleted?.(payload, {
+      deliveryId: id,
+      eventName: "workflow_run",
+    });
   });
 
   await app.register(rawBody, {

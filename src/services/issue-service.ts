@@ -78,9 +78,9 @@ function buildIssueBody(input: DispatchIssueInput): string {
     for (const dispatch of input.dispatches) {
       const targetLabel = `${dispatch.target.owner}/${dispatch.target.repo} :: ${dispatch.target.workflow}`;
       if (dispatch.status === "success") {
-        lines.push(`- SUCCESS ${targetLabel}`);
+        lines.push(`- SUCCESS ${targetLabel} (attempts=${dispatch.attempts})`);
       } else {
-        lines.push(`- FAILED ${targetLabel}`);
+        lines.push(`- FAILED ${targetLabel} (attempts=${dispatch.attempts})`);
       }
     }
   }

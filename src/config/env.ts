@@ -13,6 +13,8 @@ const EnvSchema = z.object({
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),
   DEFAULT_DISPATCH_REF: z.string().default("main"),
   CREATE_ISSUES: z.coerce.boolean().default(true),
+  DISPATCH_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
+  DISPATCH_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(0).default(200),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

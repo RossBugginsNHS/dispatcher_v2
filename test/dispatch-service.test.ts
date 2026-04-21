@@ -37,7 +37,10 @@ describe("executeWorkflowDispatches", () => {
 
     const log = createLogger() as never;
 
-    const results = await executeWorkflowDispatches(client, targets, "main", log);
+    const results = await executeWorkflowDispatches(client, targets, "main", log, {
+      maxRetries: 1,
+      retryBaseDelayMs: 0,
+    });
 
     expect(createWorkflowDispatch).toHaveBeenCalledTimes(3);
     expect(createWorkflowDispatch).toHaveBeenNthCalledWith(1, {
@@ -60,9 +63,33 @@ describe("executeWorkflowDispatches", () => {
     });
 
     expect(results).toEqual([
-      { target: targets[0], status: "success" },
-      { target: targets[1], status: "failed", error: expect.any(Error) },
-      { target: targets[2], status: "success" },
+      { target: targets[0], status: "success", attempts: 1 },
+      { target: targets[1], status: "failed", error: expect.any(Error), attempts: 1 },
+      { target: targets[2], status: "success", attempts: 1 },
     ]);
+  });
+
+  it("retries transient status errors and eventually succeeds", async () => {
+    const createWorkflowDispatch = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({});
+
+    const client = {
+      actions: {
+        createWorkflowDispatch,
+      },
+    } as unknown as DispatchActionsClient;
+
+    const targets = [{ owner: "acme", repo: "target-a", workflow: "deploy.yml" }];
+    const log = createLogger() as never;
+
+    const results = await executeWorkflowDispatches(client, targets, "main", log, {
+      maxRetries: 2,
+      retryBaseDelayMs: 0,
+    });
+
+    expect(createWorkflowDispatch).toHaveBeenCalledTimes(2);
+    expect(results).toEqual([{ target: targets[0], status: "success", attempts: 2 }]);
   });
 });

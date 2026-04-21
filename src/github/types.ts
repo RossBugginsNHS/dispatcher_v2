@@ -1,3 +1,8 @@
+export interface WorkflowRunEventContext {
+  deliveryId: string;
+  eventName: string;
+}
+
 export interface WorkflowRunPayload {
   installation?: { id: number };
   repository: {

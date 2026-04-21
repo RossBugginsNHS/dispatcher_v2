@@ -3,7 +3,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-matcher/match.js";
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
-import type { WorkflowRunPayload } from "../github/types.js";
+import type { WorkflowRunEventContext, WorkflowRunPayload } from "../github/types.js";
 import { authorizeDispatchTargets } from "./authorization-service.js";
 import { executeWorkflowDispatches, type DispatchActionsClient } from "./dispatch-service.js";
 import { createDispatchResultIssue, type IssueClient } from "./issue-service.js";
@@ -11,6 +11,8 @@ import { createDispatchResultIssue, type IssueClient } from "./issue-service.js"
 type WorkflowRunHandlerOptions = {
   defaultDispatchRef: string;
   createIssues: boolean;
+  dispatchMaxRetries: number;
+  dispatchRetryBaseDelayMs: number;
 };
 
 type WorkflowRunOctokitClient = RepoContentsClient & DispatchActionsClient & IssueClient;
@@ -19,21 +21,30 @@ export function createWorkflowRunHandler(
   app: App,
   log: FastifyBaseLogger,
   options: WorkflowRunHandlerOptions,
-): (payload: WorkflowRunPayload) => Promise<void> {
-  return async (payload: WorkflowRunPayload): Promise<void> => {
+): (payload: WorkflowRunPayload, context: WorkflowRunEventContext) => Promise<void> {
+  return async (payload: WorkflowRunPayload, context: WorkflowRunEventContext): Promise<void> => {
     const { repository, workflow_run, installation } = payload;
     const owner = repository.owner.login;
     const repo = repository.name;
     const sourceRepoFullName = `${owner}/${repo}`;
     const sourceWorkflow = normalizeWorkflowName(workflow_run.path);
+    const runLog = log.child({
+      correlationId: context.deliveryId,
+      deliveryId: context.deliveryId,
+      eventName: context.eventName,
+      sourceOwner: owner,
+      sourceRepo: repo,
+      sourceWorkflow,
+      sourceRunId: workflow_run.id,
+    });
 
-    log.info(
+    runLog.info(
       { owner, repo, workflowPath: workflow_run.path, conclusion: workflow_run.conclusion },
       "Handling workflow_run.completed",
     );
 
     if (!installation?.id) {
-      log.warn({ owner, repo }, "No installation ID in payload; skipping dispatching config fetch");
+      runLog.warn({ owner, repo }, "No installation ID in payload; skipping dispatching config fetch");
       return;
     }
 
@@ -43,9 +54,9 @@ export function createWorkflowRunHandler(
 
     if (!result.found) {
       if (result.reason === "missing") {
-        log.info({ owner, repo }, "No dispatching.yml found in repository; nothing to dispatch");
+        runLog.info({ owner, repo }, "No dispatching.yml found in repository; nothing to dispatch");
       } else {
-        log.warn(
+        runLog.warn(
           { owner, repo, err: result.error },
           "dispatching.yml is present but failed schema validation",
         );
@@ -53,7 +64,7 @@ export function createWorkflowRunHandler(
       return;
     }
 
-    log.info(
+    runLog.info(
       {
         owner,
         repo,
@@ -66,7 +77,7 @@ export function createWorkflowRunHandler(
     const candidateTargets = matchOutboundTargets(result.config, owner, workflow_run.path);
 
     if (candidateTargets.length === 0) {
-      log.info(
+      runLog.info(
         { owner, repo, workflow: sourceWorkflow },
         "No outbound targets matched this workflow run",
       );
@@ -81,7 +92,7 @@ export function createWorkflowRunHandler(
       async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
     );
 
-    log.info(
+    runLog.info(
       {
         owner,
         repo,
@@ -98,7 +109,11 @@ export function createWorkflowRunHandler(
       octokit,
       authorization.allowed,
       dispatchRef,
-      log,
+      runLog,
+      {
+        maxRetries: options.dispatchMaxRetries,
+        retryBaseDelayMs: options.dispatchRetryBaseDelayMs,
+      },
     );
 
     if (options.createIssues) {
@@ -115,14 +130,14 @@ export function createWorkflowRunHandler(
             denied: authorization.denied,
             dispatches,
           },
-          log,
+          runLog,
         );
       } catch (error) {
-        log.error({ err: error, owner, repo }, "Failed to create dispatch result issue");
+        runLog.error({ err: error, owner, repo }, "Failed to create dispatch result issue");
       }
     }
 
-    log.info(
+    runLog.info(
       {
         owner,
         repo,

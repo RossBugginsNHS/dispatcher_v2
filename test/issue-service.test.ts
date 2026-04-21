@@ -37,11 +37,13 @@ describe("createDispatchResultIssue", () => {
           {
             target: { owner: "team-a", repo: "target-a", workflow: "deploy.yml" },
             status: "success",
+            attempts: 1,
           },
           {
             target: { owner: "team-b", repo: "target-b", workflow: "release.yml" },
             status: "failed",
             error: new Error("boom"),
+            attempts: 3,
           },
         ],
         denied: [
@@ -69,8 +71,8 @@ describe("createDispatchResultIssue", () => {
     expect(args.title).toContain("failed=1");
     expect(args.title).toContain("denied=1");
 
-    expect(args.body).toContain("SUCCESS team-a/target-a :: deploy.yml");
-    expect(args.body).toContain("FAILED team-b/target-b :: release.yml");
+    expect(args.body).toContain("SUCCESS team-a/target-a :: deploy.yml (attempts=1)");
+    expect(args.body).toContain("FAILED team-b/target-b :: release.yml (attempts=3)");
     expect(args.body).toContain("DENIED team-c/target-c :: scan.yml (inbound_not_authorized)");
     expect(args.body).toContain("Run ID: 42");
     expect(args.body).toContain("Run URL: https://example/run/42");
