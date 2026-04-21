@@ -1,4 +1,5 @@
 import { App } from "@octokit/app";
+import { Octokit } from "@octokit/rest";
 
 import { env } from "./config/env.js";
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "./github/types.js";
@@ -19,6 +20,7 @@ async function start(): Promise<void> {
     const githubApp = new App({
       appId: env.GITHUB_APP_ID,
       privateKey: env.GITHUB_APP_PRIVATE_KEY,
+      Octokit,
     });
     dispatchHandler = createWorkflowRunHandler(githubApp, app.log, {
       defaultDispatchRef: env.DEFAULT_DISPATCH_REF,
