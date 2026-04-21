@@ -18,14 +18,19 @@ output "alb_dns_name" {
   value       = aws_lb.this.dns_name
 }
 
+output "apigw_invoke_url" {
+  description = "API Gateway HTTPS invoke URL (base)"
+  value       = aws_apigatewayv2_stage.default.invoke_url
+}
+
 output "webhook_base_url" {
   description = "Base URL for GitHub App webhook configuration"
-  value       = local.has_custom_domain ? "https://${var.custom_domain_name}" : "http://${aws_lb.this.dns_name}"
+  value       = local.has_custom_domain ? "https://${var.custom_domain_name}" : trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")
 }
 
 output "webhook_url" {
   description = "Full webhook URL to configure in GitHub App"
-  value       = "${local.has_custom_domain ? "https://${var.custom_domain_name}" : "http://${aws_lb.this.dns_name}"}/webhooks/github"
+  value       = "${local.has_custom_domain ? "https://${var.custom_domain_name}" : trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")}/webhooks/github"
 }
 
 output "github_webhook_secret_arn" {

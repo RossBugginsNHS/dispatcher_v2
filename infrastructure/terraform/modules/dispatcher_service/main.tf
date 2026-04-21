@@ -449,3 +449,38 @@ resource "aws_ecs_service" "app" {
 
   tags = local.base_tags
 }
+
+# ---------------------------------------------------------------------------
+# API Gateway HTTP API — HTTPS front door for GitHub webhooks
+# Proxies all requests through to the ALB over HTTP.
+# ---------------------------------------------------------------------------
+
+resource "aws_apigatewayv2_api" "webhook" {
+  name          = "${local.name_prefix}-apigw"
+  protocol_type = "HTTP"
+  description   = "HTTPS front door for GitHub webhook service"
+
+  tags = local.base_tags
+}
+
+resource "aws_apigatewayv2_integration" "alb_proxy" {
+  api_id             = aws_apigatewayv2_api.webhook.id
+  integration_type   = "HTTP_PROXY"
+  integration_method = "ANY"
+  integration_uri    = "http://${aws_lb.this.dns_name}/{proxy}"
+  payload_format_version = "1.0"
+}
+
+resource "aws_apigatewayv2_route" "proxy" {
+  api_id    = aws_apigatewayv2_api.webhook.id
+  route_key = "ANY /{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.alb_proxy.id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  api_id      = aws_apigatewayv2_api.webhook.id
+  name        = "$default"
+  auto_deploy = true
+
+  tags = local.base_tags
+}

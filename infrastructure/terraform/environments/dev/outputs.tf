@@ -2,6 +2,10 @@ output "ecr_repository_url" {
   value = module.dispatcher_service.ecr_repository_url
 }
 
+output "apigw_invoke_url" {
+  value = module.dispatcher_service.apigw_invoke_url
+}
+
 output "webhook_url" {
   value = module.dispatcher_service.webhook_url
 }
