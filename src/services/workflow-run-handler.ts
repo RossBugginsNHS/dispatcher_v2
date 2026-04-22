@@ -6,6 +6,7 @@ import { fetchDispatchingConfig, type RepoContentsClient } from "../github/conte
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "../github/types.js";
 import { authorizeDispatchTargets } from "./authorization-service.js";
 import { executeWorkflowDispatches, type DispatchActionsClient } from "./dispatch-service.js";
+import type { DispatchEventStore } from "./dispatch-event-store.js";
 import { createDispatchResultIssue, type IssueClient } from "./issue-service.js";
 
 type WorkflowRunHandlerOptions = {
@@ -13,6 +14,7 @@ type WorkflowRunHandlerOptions = {
   createIssues: boolean;
   dispatchMaxRetries: number;
   dispatchRetryBaseDelayMs: number;
+  eventStore?: DispatchEventStore;
 };
 
 type WorkflowRunOctokitClient = RepoContentsClient & DispatchActionsClient & IssueClient;
@@ -115,6 +117,34 @@ export function createWorkflowRunHandler(
         retryBaseDelayMs: options.dispatchRetryBaseDelayMs,
       },
     );
+
+    const timestamp = new Date().toISOString();
+    const sourceRunId = workflow_run.id ?? 0;
+    for (const d of dispatches) {
+      options.eventStore?.record({
+        timestamp,
+        correlationId: context.deliveryId,
+        sourceRepo: `${owner}/${repo}`,
+        sourceWorkflow,
+        sourceRunId,
+        targetRepo: `${d.target.owner}/${d.target.repo}`,
+        targetWorkflow: d.target.workflow,
+        status: d.status,
+        error: d.status === "failed" ? String(d.error) : undefined,
+      });
+    }
+    for (const denied of authorization.denied) {
+      options.eventStore?.record({
+        timestamp,
+        correlationId: context.deliveryId,
+        sourceRepo: `${owner}/${repo}`,
+        sourceWorkflow,
+        sourceRunId,
+        targetRepo: `${denied.target.owner}/${denied.target.repo}`,
+        targetWorkflow: denied.target.workflow,
+        status: "denied",
+      });
+    }
 
     if (options.createIssues) {
       try {
