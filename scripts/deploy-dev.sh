@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ACCOUNT=767397886959
-REGION=eu-west-2
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/../.env"
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  set -a; source "$ENV_FILE"; set +a
+fi
+
+ACCOUNT="${AWS_ACCOUNT_ID:?AWS_ACCOUNT_ID must be set in .env or environment}"
+REGION="${AWS_REGION:-eu-west-2}"
 ECR_REPO="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/dispatcher-v2-dev-dispatcher"
 CLUSTER=dispatcher-v2-dev-cluster
 SERVICE=dispatcher-v2-dev-service
@@ -17,7 +24,7 @@ AWS_PAGER="" AWS_PROFILE=$PROFILE aws ecr get-login-password --region $REGION \
   | docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 
 echo "==> Docker build"
-docker build -t "$ECR_REPO:$NEW_TAG" "$(dirname "$0")/.."
+docker build -t "$ECR_REPO:$NEW_TAG" "$SCRIPT_DIR/.."
 
 echo "==> Docker push"
 docker push "$ECR_REPO:$NEW_TAG"
