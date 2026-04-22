@@ -245,3 +245,18 @@ Reusable guardrail text for every AI prompt:
 - CI is green and deployment artifact (container) is ready.
 - Service is deployed on AWS through Terraform-managed infrastructure.
 - GitHub App `org-repo-workflows-runner-alpha` is configured to deliver webhooks successfully to the deployed endpoint.
+
+---
+
+## 11. Dashboard Data Policy (Mandatory)
+
+To keep the admin dashboard fast and reliable at scale:
+
+- Dashboard APIs must not perform runtime aggregations in the request path.
+- Aggregations must be precomputed at write-time (projection updates) or via scheduled rollups.
+- Dashboard endpoints must query only event-log indexes or projection keys.
+- Any endpoint that merges buckets, scans-and-aggregates, or computes grouped metrics on read is a defect.
+
+Immediate remediation requirement:
+
+- Replace any remaining runtime aggregation paths with projection-backed reads before release.
