@@ -2,6 +2,9 @@
 *.tfstate
 *.tfstate.*
 *.tfplan
+tfplan
+tfstate
+tfstate-prev
 crash.log
 .terraform.lock.hcl
 terraform.tfvars
