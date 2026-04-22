@@ -8,6 +8,7 @@ const EnvSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
+  APP_VERSION: z.string().default("local"),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   GITHUB_APP_PRIVATE_KEY: z.string().optional(),

@@ -20,9 +20,18 @@ export async function buildServer(options: BuildServerOptions = {}) {
   const app = Fastify({
     logger: true,
   });
+  const startedAt = new Date().toISOString();
 
   app.get("/health", () => {
     return { status: "ok" };
+  });
+
+  app.get("/version", () => {
+    return {
+      version: env.APP_VERSION,
+      startedAt,
+      hostname: process.env.HOSTNAME ?? "unknown",
+    };
   });
 
   app.get("/admin/installations", async () => {
