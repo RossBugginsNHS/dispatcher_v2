@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import rawBody from "fastify-raw-body";
+import rateLimit from "@fastify/rate-limit";
 import { Webhooks } from "@octokit/webhooks";
 
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "./types.js";
@@ -20,6 +21,9 @@ type RequestWithRawBody = {
 };
 
 const DELIVERY_ID_REPLAY_WINDOW_MS = 10 * 60 * 1000;
+const DELIVERY_ID_PRUNE_INTERVAL_MS = 60 * 1000;
+const WEBHOOK_RATE_LIMIT_WINDOW = "1 minute";
+const WEBHOOK_RATE_LIMIT_MAX_REQUESTS_PER_IP = 100;
 
 export async function registerGitHubWebhookHandler(
   app: FastifyInstance,
@@ -27,6 +31,14 @@ export async function registerGitHubWebhookHandler(
 ): Promise<void> {
   const webhooks = new Webhooks({ secret: options.secret });
   const seenDeliveryIds = new Map<string, number>();
+  const pruneTimer = setInterval(() => {
+    pruneExpiredDeliveryIds(seenDeliveryIds, Date.now());
+  }, DELIVERY_ID_PRUNE_INTERVAL_MS);
+  pruneTimer.unref();
+
+  app.addHook("onClose", async () => {
+    clearInterval(pruneTimer);
+  });
 
   webhooks.on("workflow_run.completed", async ({ id, payload }) => {
     app.log.info({ deliveryId: id }, "Received workflow_run.completed event");
@@ -42,12 +54,19 @@ export async function registerGitHubWebhookHandler(
     runFirst: true,
     encoding: "utf8",
   });
+  await app.register(rateLimit, {
+    global: false,
+  });
 
   app.post(
     "/webhooks/github",
     {
       config: {
         rawBody: true,
+        rateLimit: {
+          max: WEBHOOK_RATE_LIMIT_MAX_REQUESTS_PER_IP,
+          timeWindow: WEBHOOK_RATE_LIMIT_WINDOW,
+        },
       },
     },
     async (request, reply) => {
@@ -66,7 +85,13 @@ export async function registerGitHubWebhookHandler(
         return reply.code(400).send({ error: "Missing required GitHub webhook headers or payload" });
       }
 
-      pruneExpiredDeliveryIds(seenDeliveryIds, Date.now());
+      const isValidSignature = await webhooks.verify(payload, signature);
+      if (!isValidSignature) {
+        app.log.warn({ deliveryId, eventName }, "Rejected GitHub webhook with invalid signature");
+        return reply.code(401).send({ error: "Invalid webhook signature" });
+      }
+
+      const now = Date.now();
       if (seenDeliveryIds.has(deliveryId)) {
         app.log.warn({ deliveryId, eventName }, "Rejected duplicate GitHub webhook delivery");
         return reply.code(409).send({ error: "Duplicate webhook delivery" });
@@ -79,12 +104,12 @@ export async function registerGitHubWebhookHandler(
           payload,
           signature,
         });
-        seenDeliveryIds.set(deliveryId, Date.now());
+        seenDeliveryIds.set(deliveryId, now);
 
         return reply.code(202).send({ accepted: true });
       } catch (error) {
         app.log.warn({ err: error, deliveryId, eventName }, "Rejected GitHub webhook");
-        return reply.code(401).send({ error: "Invalid webhook signature" });
+        return reply.code(400).send({ error: "Failed to process webhook" });
       }
     },
   );

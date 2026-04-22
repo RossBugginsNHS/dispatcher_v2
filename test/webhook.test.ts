@@ -110,4 +110,71 @@ describe("POST /webhooks/github", () => {
 
     await app.close();
   });
+
+  it("rejects malformed payload even with valid signature", async () => {
+    const onWorkflowRunCompleted = vi.fn();
+    const app = await buildServer({
+      githubWebhookSecret: "test-secret",
+      onWorkflowRunCompleted,
+    });
+
+    const payload = "not-json";
+    const webhooks = new Webhooks({ secret: "test-secret" });
+    const signature = await webhooks.sign(payload);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers: {
+        "content-type": "application/json",
+        "x-github-delivery": "delivery-malformed",
+        "x-github-event": "workflow_run",
+        "x-hub-signature-256": signature,
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(onWorkflowRunCompleted).not.toHaveBeenCalled();
+
+    await app.close();
+  });
+
+  it("rate limits excessive webhook requests from the same source", async () => {
+    const onWorkflowRunCompleted = vi.fn();
+    const app = await buildServer({
+      githubWebhookSecret: "test-secret",
+      onWorkflowRunCompleted,
+    });
+
+    const payload = JSON.stringify({
+      action: "completed",
+      workflow_run: { id: 456 },
+      repository: { full_name: "owner/repo" },
+    });
+    const webhooks = new Webhooks({ secret: "test-secret" });
+    const signature = await webhooks.sign(payload);
+
+    let finalStatus = 0;
+    // 100 requests are allowed per minute; the 101st must be throttled.
+    for (let attempt = 0; attempt < 101; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/webhooks/github",
+        payload,
+        headers: {
+          "content-type": "application/json",
+          "x-github-delivery": `delivery-rate-${attempt}`,
+          "x-github-event": "workflow_run",
+          "x-hub-signature-256": signature,
+        },
+      });
+      finalStatus = response.statusCode;
+    }
+
+    expect(finalStatus).toBe(429);
+    expect(onWorkflowRunCompleted).toHaveBeenCalledTimes(100);
+
+    await app.close();
+  });
 });
