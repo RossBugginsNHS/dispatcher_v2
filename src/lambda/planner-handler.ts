@@ -4,8 +4,10 @@ import { env } from "../config/env.js";
 import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-matcher/match.js";
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
 import { authorizeDispatchTargets } from "../services/authorization-service.js";
-import { createSqsClient, enqueueJson, createEventBridgeClient, publishFact } from "../async/clients.js";
+import { createSqsClient, enqueueJson, createEventBridgeClient, publishCloudEvent } from "../async/clients.js";
+import { makeCloudEvent } from "../async/cloudevents.js";
 import { DispatchFacts, type DispatchRequestAcceptedMessage, type DispatchTargetWorkMessage } from "../async/contracts.js";
+import { makeChildTraceContext } from "../async/trace-context.js";
 import { createGitHubApp } from "./github-app.js";
 
 const log = pino({ level: env.LOG_LEVEL });
@@ -53,13 +55,23 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
       const sourceConfig = await fetchDispatchingConfig(octokit, owner, repo);
 
       if (!sourceConfig.found) {
-        await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.planCreated, {
-          deliveryId: message.deliveryId,
-          sourceRepo: sourceRepoFullName,
-          sourceWorkflow,
-          sourceRunId,
-          allowedTargets: 0,
-        });
+        await publishCloudEvent(
+          eb,
+          env.DISPATCH_FACTS_EVENT_BUS_NAME,
+          makeCloudEvent({
+            source: "io.dispatcher.planner",
+            type: DispatchFacts.planCreated,
+            subject: sourceRepoFullName,
+            data: {
+              deliveryId: message.deliveryId,
+              sourceRepo: sourceRepoFullName,
+              sourceWorkflow,
+              sourceRunId,
+              allowedTargets: 0,
+            },
+            trace: makeChildTraceContext(message.trace),
+          }),
+        );
         continue;
       }
 
@@ -72,15 +84,25 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
         async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
       );
 
-      await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.planCreated, {
-        deliveryId: message.deliveryId,
-        sourceRepo: sourceRepoFullName,
-        sourceWorkflow,
-        sourceRunId,
-        candidateTargets: candidates.length,
-        allowedTargets: authorization.allowed.length,
-        deniedTargets: authorization.denied.length,
-      });
+      await publishCloudEvent(
+        eb,
+        env.DISPATCH_FACTS_EVENT_BUS_NAME,
+        makeCloudEvent({
+          source: "io.dispatcher.planner",
+          type: DispatchFacts.planCreated,
+          subject: sourceRepoFullName,
+          data: {
+            deliveryId: message.deliveryId,
+            sourceRepo: sourceRepoFullName,
+            sourceWorkflow,
+            sourceRunId,
+            candidateTargets: candidates.length,
+            allowedTargets: authorization.allowed.length,
+            deniedTargets: authorization.denied.length,
+          },
+          trace: makeChildTraceContext(message.trace),
+        }),
+      );
 
       for (const target of authorization.allowed) {
         const targetMessage: DispatchTargetWorkMessage = {
@@ -96,17 +118,28 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
             repo: target.repo,
             workflow: target.workflow,
           },
+          trace: makeChildTraceContext(message.trace),
         };
 
         await enqueueJson(sqs, env.DISPATCH_TARGETS_QUEUE_URL, targetMessage);
-        await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.targetQueued, {
-          deliveryId: message.deliveryId,
-          sourceRepo: sourceRepoFullName,
-          sourceWorkflow,
-          sourceRunId,
-          targetRepo: `${target.owner}/${target.repo}`,
-          targetWorkflow: target.workflow,
-        });
+        await publishCloudEvent(
+          eb,
+          env.DISPATCH_FACTS_EVENT_BUS_NAME,
+          makeCloudEvent({
+            source: "io.dispatcher.planner",
+            type: DispatchFacts.targetQueued,
+            subject: `${target.owner}/${target.repo}`,
+            data: {
+              deliveryId: message.deliveryId,
+              sourceRepo: sourceRepoFullName,
+              sourceWorkflow,
+              sourceRunId,
+              targetRepo: `${target.owner}/${target.repo}`,
+              targetWorkflow: target.workflow,
+            },
+            trace: makeChildTraceContext(targetMessage.trace),
+          }),
+        );
       }
     } catch (error) {
       log.error({ err: error, messageId: record.messageId }, "Planner failed processing message");

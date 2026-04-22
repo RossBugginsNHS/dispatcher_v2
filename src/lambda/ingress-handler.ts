@@ -2,8 +2,10 @@ import pino from "pino";
 import { Webhooks } from "@octokit/webhooks";
 
 import { env } from "../config/env.js";
-import { enqueueJson, createEventBridgeClient, createSqsClient, publishFact } from "../async/clients.js";
+import { enqueueJson, createEventBridgeClient, createSqsClient, publishCloudEvent } from "../async/clients.js";
+import { makeCloudEvent } from "../async/cloudevents.js";
 import { DispatchFacts, type DispatchRequestAcceptedMessage } from "../async/contracts.js";
+import { makeChildTraceContext, withIncomingTraceContext } from "../async/trace-context.js";
 import type { WorkflowRunPayload } from "../github/types.js";
 import { getSecretValue } from "./runtime-secrets.js";
 
@@ -87,23 +89,39 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
     return { statusCode: 202, body: JSON.stringify({ accepted: true, ignored: true }) };
   }
 
+  const incomingTrace = withIncomingTraceContext({
+    traceparent: getHeader(event, "traceparent"),
+    tracestate: getHeader(event, "tracestate"),
+  });
+
   const message: DispatchRequestAcceptedMessage = {
     deliveryId,
     eventName,
     receivedAt: new Date().toISOString(),
     payload: parsed,
+    trace: makeChildTraceContext(incomingTrace),
   };
 
   const sqs = createSqsClient();
   const eb = createEventBridgeClient();
 
   await enqueueJson(sqs, env.DISPATCH_REQUESTS_QUEUE_URL, message);
-  await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.requestAccepted, {
-    deliveryId,
-    sourceRepo: `${parsed.repository.owner.login}/${parsed.repository.name}`,
-    sourceWorkflow: parsed.workflow_run.path,
-    sourceRunId: parsed.workflow_run.id,
-  });
+  await publishCloudEvent(
+    eb,
+    env.DISPATCH_FACTS_EVENT_BUS_NAME,
+    makeCloudEvent({
+      source: "io.dispatcher.ingress",
+      type: DispatchFacts.requestAccepted,
+      subject: `${parsed.repository.owner.login}/${parsed.repository.name}`,
+      data: {
+        deliveryId,
+        sourceRepo: `${parsed.repository.owner.login}/${parsed.repository.name}`,
+        sourceWorkflow: parsed.workflow_run.path,
+        sourceRunId: parsed.workflow_run.id,
+      },
+      trace: message.trace,
+    }),
+  );
 
   return { statusCode: 202, body: JSON.stringify({ accepted: true }) };
 }

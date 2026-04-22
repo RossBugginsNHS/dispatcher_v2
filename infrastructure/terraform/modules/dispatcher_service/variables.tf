@@ -11,6 +11,14 @@ variable "environment" {
 variable "container_image" {
   description = "Container image URI for ECS task definition"
   type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "enable_fargate" {
+  description = "Enable ECS Fargate + ALB runtime path"
+  type        = bool
+  default     = true
 }
 
 variable "container_port" {
@@ -119,24 +127,11 @@ variable "enable_async_pipeline" {
   default     = false
 }
 
-variable "lambda_package_s3_bucket" {
-  description = "S3 bucket containing Lambda deployment package zip"
+variable "lambda_image_uri" {
+  description = "ECR image URI for Lambda container runtime"
   type        = string
   default     = null
   nullable    = true
-}
-
-variable "lambda_package_s3_key" {
-  description = "S3 key for Lambda deployment package zip"
-  type        = string
-  default     = null
-  nullable    = true
-}
-
-variable "lambda_runtime" {
-  description = "Lambda runtime for async handlers"
-  type        = string
-  default     = "nodejs22.x"
 }
 
 variable "lambda_timeout_seconds" {
@@ -149,22 +144,4 @@ variable "lambda_memory_mb" {
   description = "Lambda memory size in MB for async handlers"
   type        = number
   default     = 512
-}
-
-variable "lambda_ingress_handler" {
-  description = "Handler for ingress Lambda"
-  type        = string
-  default     = "dist/lambda/ingress-handler.handler"
-}
-
-variable "lambda_planner_handler" {
-  description = "Handler for planner Lambda"
-  type        = string
-  default     = "dist/lambda/planner-handler.handler"
-}
-
-variable "lambda_dispatcher_handler" {
-  description = "Handler for dispatcher Lambda"
-  type        = string
-  default     = "dist/lambda/dispatcher-handler.handler"
 }

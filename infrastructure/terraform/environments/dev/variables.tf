@@ -13,6 +13,14 @@ variable "project_name" {
 variable "container_image" {
   type        = string
   description = "Container image URI to deploy"
+  default     = null
+  nullable    = true
+}
+
+variable "enable_fargate" {
+  type        = bool
+  description = "Enable ECS Fargate runtime path"
+  default     = false
 }
 
 variable "github_app_id" {
@@ -88,19 +96,12 @@ variable "acm_certificate_arn" {
 variable "enable_async_pipeline" {
   type        = bool
   description = "Enable async Lambda + SQS + EventBridge dispatcher pipeline"
-  default     = false
+  default     = true
 }
 
-variable "lambda_package_s3_bucket" {
+variable "lambda_image_uri" {
   type        = string
-  description = "S3 bucket for Lambda deployment package zip"
-  default     = null
-  nullable    = true
-}
-
-variable "lambda_package_s3_key" {
-  type        = string
-  description = "S3 key for Lambda deployment package zip"
+  description = "ECR image URI for Lambda container runtime"
   default     = null
   nullable    = true
 }

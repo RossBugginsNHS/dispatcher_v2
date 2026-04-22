@@ -30,6 +30,11 @@ load_env_var TF_STATE_LOCK_TABLE
 load_env_var TF_STATE_REGION
 load_env_var TF_VAR_github_app_id
 load_env_var TF_VAR_container_image
+load_env_var TF_VAR_enable_fargate
+load_env_var TF_VAR_enable_async_pipeline
+load_env_var TF_VAR_lambda_image_uri
+load_env_var LAMBDA_ECR_REPOSITORY_NAME
+load_env_var LAMBDA_IMAGE_TAG
 
 PROFILE="${AWS_PROFILE:-nhs-notify-admin}"
 REGION="${AWS_REGION:-eu-west-2}"
@@ -74,17 +79,57 @@ if [[ -n "${GITHUB_APP_ID:-}" && -z "${TF_VAR_github_app_id:-}" ]]; then
   export TF_VAR_github_app_id="$GITHUB_APP_ID"
 fi
 
-if [[ -n "${AWS_ACCOUNT_ID:-}" && -z "${TF_VAR_container_image:-}" ]]; then
-  export TF_VAR_container_image="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/dispatcher-v2-dev-dispatcher:latest"
-fi
+export TF_VAR_enable_fargate="${TF_VAR_enable_fargate:-false}"
+export TF_VAR_enable_async_pipeline="${TF_VAR_enable_async_pipeline:-true}"
 
 if [[ -z "${TF_VAR_github_app_id:-}" ]]; then
   echo "ERROR: TF_VAR_github_app_id is required (set GITHUB_APP_ID in .env or TF_VAR_github_app_id)." >&2
   exit 1
 fi
 
-if [[ -z "${TF_VAR_container_image:-}" ]]; then
-  echo "ERROR: TF_VAR_container_image is required (set in env/TF_VAR_container_image)." >&2
+if [[ "${TF_VAR_enable_fargate}" == "true" && -z "${TF_VAR_container_image:-}" ]]; then
+  if [[ -z "${AWS_ACCOUNT_ID:-}" ]]; then
+    AWS_ACCOUNT_ID=$(python3 -c "import json; print(json.load(open('/tmp/apply-dev-caller.json'))['Account'])")
+    export AWS_ACCOUNT_ID
+  fi
+  export TF_VAR_container_image="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/dispatcher-v2-dev-dispatcher:latest"
+fi
+
+if [[ "${TF_VAR_enable_async_pipeline}" == "true" ]]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker not found in PATH (required to build Lambda image for async pipeline)." >&2
+    exit 1
+  fi
+
+  if [[ -z "${AWS_ACCOUNT_ID:-}" ]]; then
+    AWS_ACCOUNT_ID=$(python3 -c "import json; print(json.load(open('/tmp/apply-dev-caller.json'))['Account'])")
+    export AWS_ACCOUNT_ID
+  fi
+
+  LAMBDA_REPO_NAME="${LAMBDA_ECR_REPOSITORY_NAME:-dispatcher-v2-dev-dispatcher}"
+  LAMBDA_IMAGE_TAG="${LAMBDA_IMAGE_TAG:-lambda-$(date -u +%Y%m%d%H%M%S)}"
+  LAMBDA_IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${LAMBDA_REPO_NAME}:${LAMBDA_IMAGE_TAG}"
+
+  echo "==> Ensuring ECR repository exists: ${LAMBDA_REPO_NAME}"
+  if ! AWS_PAGER="" AWS_PROFILE="$PROFILE" aws ecr describe-repositories --region "$REGION" --repository-names "$LAMBDA_REPO_NAME" >/dev/null 2>&1; then
+    AWS_PAGER="" AWS_PROFILE="$PROFILE" aws ecr create-repository --region "$REGION" --repository-name "$LAMBDA_REPO_NAME" >/dev/null
+  fi
+
+  echo "==> ECR login"
+  AWS_PAGER="" AWS_PROFILE="$PROFILE" aws ecr get-login-password --region "$REGION" \
+    | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+  echo "==> Building Lambda image: ${LAMBDA_IMAGE_URI}"
+  docker build -f "$REPO_ROOT/Dockerfile.lambda" -t "$LAMBDA_IMAGE_URI" "$REPO_ROOT"
+
+  echo "==> Pushing Lambda image"
+  docker push "$LAMBDA_IMAGE_URI"
+
+  export TF_VAR_lambda_image_uri="$LAMBDA_IMAGE_URI"
+fi
+
+if [[ "${TF_VAR_enable_async_pipeline}" == "true" && -z "${TF_VAR_lambda_image_uri:-}" ]]; then
+  echo "ERROR: async pipeline enabled but TF_VAR_lambda_image_uri is empty." >&2
   exit 1
 fi
 

@@ -2,8 +2,10 @@ import pino from "pino";
 
 import { env } from "../config/env.js";
 import { executeWorkflowDispatches, type DispatchActionsClient } from "../services/dispatch-service.js";
-import { createEventBridgeClient, publishFact } from "../async/clients.js";
+import { createEventBridgeClient, publishCloudEvent } from "../async/clients.js";
+import { makeCloudEvent } from "../async/cloudevents.js";
 import { DispatchFacts, type DispatchTargetWorkMessage } from "../async/contracts.js";
+import { makeChildTraceContext } from "../async/trace-context.js";
 import { createGitHubApp } from "./github-app.js";
 
 const log = pino({ level: env.LOG_LEVEL });
@@ -62,12 +64,32 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
       };
 
       if (result.status === "success") {
-        await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.triggerSucceeded, detail);
+        await publishCloudEvent(
+          eb,
+          env.DISPATCH_FACTS_EVENT_BUS_NAME,
+          makeCloudEvent({
+            source: "io.dispatcher.dispatcher",
+            type: DispatchFacts.triggerSucceeded,
+            subject: `${message.target.owner}/${message.target.repo}`,
+            data: detail,
+            trace: makeChildTraceContext(message.trace),
+          }),
+        );
       } else {
-        await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.triggerFailed, {
-          ...detail,
-          error: String(result.error),
-        });
+        await publishCloudEvent(
+          eb,
+          env.DISPATCH_FACTS_EVENT_BUS_NAME,
+          makeCloudEvent({
+            source: "io.dispatcher.dispatcher",
+            type: DispatchFacts.triggerFailed,
+            subject: `${message.target.owner}/${message.target.repo}`,
+            data: {
+              ...detail,
+              error: String(result.error),
+            },
+            trace: makeChildTraceContext(message.trace),
+          }),
+        );
       }
     } catch (error) {
       log.error({ err: error, messageId: record.messageId }, "Dispatcher failed processing message");

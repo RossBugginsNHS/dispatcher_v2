@@ -1,10 +1,16 @@
 import type { WorkflowRunPayload } from "../github/types.js";
 
+export type TraceContext = {
+  traceparent: string;
+  tracestate?: string;
+};
+
 export type DispatchRequestAcceptedMessage = {
   deliveryId: string;
   eventName: string;
   receivedAt: string;
   payload: WorkflowRunPayload;
+  trace: TraceContext;
 };
 
 export type DispatchTargetWorkMessage = {
@@ -20,12 +26,13 @@ export type DispatchTargetWorkMessage = {
     repo: string;
     workflow: string;
   };
+  trace: TraceContext;
 };
 
 export const DispatchFacts = {
-  requestAccepted: "dispatch.request.accepted",
-  planCreated: "dispatch.plan.created",
-  targetQueued: "dispatch.target.queued",
-  triggerSucceeded: "dispatch.trigger.succeeded",
-  triggerFailed: "dispatch.trigger.failed",
+  requestAccepted: "com.dispatcher.request.accepted",
+  planCreated: "com.dispatcher.plan.created",
+  targetQueued: "com.dispatcher.target.queued",
+  triggerSucceeded: "com.dispatcher.trigger.succeeded",
+  triggerFailed: "com.dispatcher.trigger.failed",
 } as const;

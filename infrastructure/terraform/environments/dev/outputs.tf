@@ -29,3 +29,15 @@ output "dispatch_targets_queue_url" {
 output "dispatch_facts_event_bus_name" {
   value = module.dispatcher_service.dispatch_facts_event_bus_name
 }
+
+output "dispatch_events_table_name" {
+  value = module.dispatcher_service.dispatch_events_table_name
+}
+
+output "dispatch_projections_table_name" {
+  value = module.dispatcher_service.dispatch_projections_table_name
+}
+
+output "admin_url" {
+  value = module.dispatcher_service.admin_url
+}

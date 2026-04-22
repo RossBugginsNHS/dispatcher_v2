@@ -1,6 +1,8 @@
 aws_region      = "eu-west-2"
 project_name    = "dispatcher-v2"
-container_image = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/dispatcher-v2-prod-dispatcher:latest"
+enable_fargate        = false
+enable_async_pipeline = true
+lambda_image_uri      = "123456789012.dkr.ecr.eu-west-2.amazonaws.com/dispatcher-v2-prod-dispatcher-lambda:latest"
 github_app_id   = "123456"
 github_app_slug = "org-repo-workflows-runner-alpha"
 

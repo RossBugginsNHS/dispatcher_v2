@@ -1,6 +1,8 @@
 import { PutEventsCommand, EventBridgeClient } from "@aws-sdk/client-eventbridge";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 
+import type { CloudEvent } from "./cloudevents.js";
+
 export function createSqsClient(): SQSClient {
   return new SQSClient({});
 }
@@ -22,20 +24,20 @@ export async function enqueueJson(
   );
 }
 
-export async function publishFact(
+export async function publishCloudEvent(
   eb: EventBridgeClient,
   eventBusName: string,
-  detailType: string,
-  detail: unknown,
+  event: CloudEvent,
 ): Promise<void> {
   await eb.send(
     new PutEventsCommand({
       Entries: [
         {
           EventBusName: eventBusName,
-          Source: "dispatcher.v2",
-          DetailType: detailType,
-          Detail: JSON.stringify(detail),
+          Source: event.source,
+          DetailType: event.type,
+          Time: new Date(event.time),
+          Detail: JSON.stringify(event),
         },
       ],
     }),

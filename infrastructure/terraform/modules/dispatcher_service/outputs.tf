@@ -5,17 +5,17 @@ output "ecr_repository_url" {
 
 output "ecs_cluster_name" {
   description = "ECS cluster name"
-  value       = aws_ecs_cluster.this.name
+  value       = local.fargate_enabled ? aws_ecs_cluster.this[0].name : null
 }
 
 output "ecs_service_name" {
   description = "ECS service name"
-  value       = aws_ecs_service.app.name
+  value       = local.fargate_enabled ? aws_ecs_service.app[0].name : null
 }
 
 output "alb_dns_name" {
   description = "ALB DNS name"
-  value       = aws_lb.this.dns_name
+  value       = local.fargate_enabled ? aws_lb.this[0].dns_name : null
 }
 
 output "apigw_invoke_url" {
@@ -56,4 +56,19 @@ output "dispatch_targets_queue_url" {
 output "dispatch_facts_event_bus_name" {
   description = "EventBridge bus name for dispatch lifecycle facts"
   value       = local.async_enabled ? aws_cloudwatch_event_bus.dispatch_facts[0].name : null
+}
+
+output "dispatch_events_table_name" {
+  description = "DynamoDB table name for raw dispatch CloudEvents"
+  value       = local.async_enabled ? aws_dynamodb_table.dispatch_events[0].name : null
+}
+
+output "dispatch_projections_table_name" {
+  description = "DynamoDB table name for dispatch projections"
+  value       = local.async_enabled ? aws_dynamodb_table.dispatch_projections[0].name : null
+}
+
+output "admin_url" {
+  description = "Admin UI URL"
+  value       = "${trimsuffix(aws_apigatewayv2_stage.default.invoke_url, "/")}/admin"
 }
