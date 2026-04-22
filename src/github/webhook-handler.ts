@@ -19,11 +19,14 @@ type RequestWithRawBody = {
   headers: Record<string, string | string[] | undefined>;
 };
 
+const DELIVERY_ID_REPLAY_WINDOW_MS = 10 * 60 * 1000;
+
 export async function registerGitHubWebhookHandler(
   app: FastifyInstance,
   options: RegisterGitHubWebhookHandlerOptions,
 ): Promise<void> {
   const webhooks = new Webhooks({ secret: options.secret });
+  const seenDeliveryIds = new Map<string, number>();
 
   webhooks.on("workflow_run.completed", async ({ id, payload }) => {
     app.log.info({ deliveryId: id }, "Received workflow_run.completed event");
@@ -63,6 +66,12 @@ export async function registerGitHubWebhookHandler(
         return reply.code(400).send({ error: "Missing required GitHub webhook headers or payload" });
       }
 
+      pruneExpiredDeliveryIds(seenDeliveryIds, Date.now());
+      if (seenDeliveryIds.has(deliveryId)) {
+        app.log.warn({ deliveryId, eventName }, "Rejected duplicate GitHub webhook delivery");
+        return reply.code(409).send({ error: "Duplicate webhook delivery" });
+      }
+
       try {
         await webhooks.verifyAndReceive({
           id: deliveryId,
@@ -70,6 +79,7 @@ export async function registerGitHubWebhookHandler(
           payload,
           signature,
         });
+        seenDeliveryIds.set(deliveryId, Date.now());
 
         return reply.code(202).send({ accepted: true });
       } catch (error) {
@@ -78,4 +88,12 @@ export async function registerGitHubWebhookHandler(
       }
     },
   );
+}
+
+function pruneExpiredDeliveryIds(seenDeliveryIds: Map<string, number>, now: number): void {
+  for (const [deliveryId, timestamp] of seenDeliveryIds.entries()) {
+    if (now - timestamp > DELIVERY_ID_REPLAY_WINDOW_MS) {
+      seenDeliveryIds.delete(deliveryId);
+    }
+  }
 }

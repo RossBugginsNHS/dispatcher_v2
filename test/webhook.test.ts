@@ -66,4 +66,48 @@ describe("POST /webhooks/github", () => {
 
     await app.close();
   });
+
+  it("rejects duplicate webhook deliveries", async () => {
+    const onWorkflowRunCompleted = vi.fn();
+    const app = await buildServer({
+      githubWebhookSecret: "test-secret",
+      onWorkflowRunCompleted,
+    });
+
+    const payload = JSON.stringify({
+      action: "completed",
+      workflow_run: { id: 321 },
+      repository: { full_name: "owner/repo" },
+    });
+
+    const webhooks = new Webhooks({ secret: "test-secret" });
+    const signature = await webhooks.sign(payload);
+
+    const headers = {
+      "content-type": "application/json",
+      "x-github-delivery": "delivery-duplicate",
+      "x-github-event": "workflow_run",
+      "x-hub-signature-256": signature,
+    };
+
+    const firstResponse = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers,
+    });
+
+    const secondResponse = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers,
+    });
+
+    expect(firstResponse.statusCode).toBe(202);
+    expect(secondResponse.statusCode).toBe(409);
+    expect(onWorkflowRunCompleted).toHaveBeenCalledTimes(1);
+
+    await app.close();
+  });
 });
