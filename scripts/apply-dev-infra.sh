@@ -6,10 +6,30 @@ REPO_ROOT="$SCRIPT_DIR/.."
 TF_DIR="$REPO_ROOT/infrastructure/terraform/environments/dev"
 ENV_FILE="$REPO_ROOT/.env"
 
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  set -a; source "$ENV_FILE"; set +a
-fi
+load_env_var() {
+  local key="$1"
+  local value
+  if [[ -n "${!key:-}" ]]; then
+    return 0
+  fi
+  if [[ ! -f "$ENV_FILE" ]]; then
+    return 0
+  fi
+  value=$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 | cut -d'=' -f2- || true)
+  if [[ -n "$value" ]]; then
+    export "$key=$value"
+  fi
+}
+
+load_env_var AWS_PROFILE
+load_env_var AWS_REGION
+load_env_var GITHUB_APP_ID
+load_env_var AWS_ACCOUNT_ID
+load_env_var TF_STATE_BUCKET
+load_env_var TF_STATE_LOCK_TABLE
+load_env_var TF_STATE_REGION
+load_env_var TF_VAR_github_app_id
+load_env_var TF_VAR_container_image
 
 PROFILE="${AWS_PROFILE:-nhs-notify-admin}"
 REGION="${AWS_REGION:-eu-west-2}"
