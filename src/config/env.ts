@@ -17,6 +17,8 @@ const EnvSchema = z.object({
   DISPATCH_REQUESTS_QUEUE_URL: z.string().optional(),
   DISPATCH_TARGETS_QUEUE_URL: z.string().optional(),
   DISPATCH_FACTS_EVENT_BUS_NAME: z.string().optional(),
+  DISPATCH_EVENTS_TABLE_NAME: z.string().optional(),
+  DISPATCH_PROJECTIONS_TABLE_NAME: z.string().optional(),
   DEFAULT_DISPATCH_REF: z.string().default("main"),
   CREATE_ISSUES: z.coerce.boolean().default(true),
   DISPATCH_MAX_RETRIES: z.coerce.number().int().min(0).default(2),

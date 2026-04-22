@@ -16,7 +16,7 @@ const log = pino({ level: env.LOG_LEVEL });
 
 type ApiGatewayV2Event = {
   rawPath: string;
-  queryStringParameters?: Record<string, string>;
+  queryStringParameters?: Record<string, string | undefined>;
 };
 
 type ApiGatewayV2Response = {
@@ -98,6 +98,9 @@ function htmlPage(): string {
     .chip strong{font-weight:700}
     .link-btn{border:none;background:none;padding:0;color:var(--accent);cursor:pointer;font:inherit;text-decoration:underline;text-underline-offset:2px}
     .link-btn:hover{color:#0b5a54}
+    .tabs{display:flex;gap:8px;align-items:center}
+    .tab{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#f8faf9;cursor:pointer;font-size:.8rem}
+    .tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
   </style>
 </head>
 <body>
@@ -121,9 +124,11 @@ function htmlPage(): string {
   </div>
 
   <div class="section" style="padding:10px 12px">
+    <div class="tabs" id="mode-tabs" style="margin-bottom:8px"></div>
     <div class="filters" id="filter-bar"></div>
   </div>
 
+  <div class="ops-section">
   <h2>Pipeline Metrics</h2>
   <div class="grid" id="metrics"></div>
 
@@ -131,10 +136,12 @@ function htmlPage(): string {
   <div class="section">
     <div class="funnel" id="funnel"></div>
   </div>
+  </div>
 
+  <div class="intel-section">
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
     <div>
-      <h2>Top Source Repos (Last 5 min)</h2>
+      <h2>Top Source Repos (<span id="top-window-label">Last 5 min</span>)</h2>
       <div class="section" style="padding:0">
         <table>
           <thead><tr><th>Repo</th><th>Events</th></tr></thead>
@@ -156,11 +163,13 @@ function htmlPage(): string {
   <h2>Recent Events</h2>
   <div class="section" style="padding:0">
     <table>
-      <thead><tr><th>When</th><th>Type</th><th>Repo</th><th>Target</th><th>Version</th><th>Trace</th></tr></thead>
+      <thead><tr><th>When</th><th>Type</th><th>Repo</th><th>Target</th><th>Version</th><th>Trace</th><th>Journey</th></tr></thead>
       <tbody id="recent-events"></tbody>
     </table>
   </div>
+  </div>
 
+  <div class="ops-section">
   <h2>Journey Explorer</h2>
   <div class="section">
     <div style="display:flex;gap:8px;align-items:center">
@@ -178,10 +187,13 @@ function htmlPage(): string {
       <tbody id="failures"></tbody>
     </table>
   </div>
+  </div>
 </div>
 
 <script>
 const state = {
+  mode: 'ops',
+  timeRange: '5m',
   filters: {
     sourceRepo: '',
     targetRepo: '',
@@ -202,8 +214,41 @@ function esc(v) {
   });
 }
 
+function readStateFromUrl() {
+  const q = new URLSearchParams(window.location.search);
+  state.mode = q.get('mode') === 'intel' ? 'intel' : 'ops';
+  state.timeRange = q.get('range') || '5m';
+  state.filters.sourceRepo = q.get('sourceRepo') || '';
+  state.filters.targetRepo = q.get('targetRepo') || '';
+  state.filters.eventType = q.get('eventType') || '';
+}
+
+function writeStateToUrl() {
+  const q = new URLSearchParams();
+  if (state.mode !== 'ops') q.set('mode', state.mode);
+  if (state.timeRange !== '5m') q.set('range', state.timeRange);
+  if (state.filters.sourceRepo) q.set('sourceRepo', state.filters.sourceRepo);
+  if (state.filters.targetRepo) q.set('targetRepo', state.filters.targetRepo);
+  if (state.filters.eventType) q.set('eventType', state.filters.eventType);
+  const next = q.toString() ? ('?' + q.toString()) : window.location.pathname;
+  history.replaceState(null, '', next);
+}
+
+function setMode(value) {
+  state.mode = value;
+  writeStateToUrl();
+  renderAll();
+}
+
+function setTimeRange(value) {
+  state.timeRange = value;
+  writeStateToUrl();
+  loadSummary().then(renderAll);
+}
+
 function setFilter(key, value) {
   state.filters[key] = state.filters[key] === value ? '' : value;
+  writeStateToUrl();
   renderAll();
 }
 
@@ -211,6 +256,7 @@ function clearFilters() {
   state.filters.sourceRepo = '';
   state.filters.targetRepo = '';
   state.filters.eventType = '';
+  writeStateToUrl();
   renderAll();
 }
 
@@ -219,6 +265,15 @@ function eventTypeLabel(value) {
 }
 
 function renderFilterBar() {
+  document.getElementById('mode-tabs').innerHTML = [
+    '<button class="tab ' + (state.mode === 'ops' ? 'active' : '') + '" onclick="setMode(&quot;ops&quot;)">Operations</button>',
+    '<button class="tab ' + (state.mode === 'intel' ? 'active' : '') + '" onclick="setMode(&quot;intel&quot;)">Management Intelligence</button>',
+    '<span style="margin-left:auto"></span>',
+    '<button class="tab ' + (state.timeRange === '5m' ? 'active' : '') + '" onclick="setTimeRange(&quot;5m&quot;)">5m</button>',
+    '<button class="tab ' + (state.timeRange === '15m' ? 'active' : '') + '" onclick="setTimeRange(&quot;15m&quot;)">15m</button>',
+    '<button class="tab ' + (state.timeRange === '60m' ? 'active' : '') + '" onclick="setTimeRange(&quot;60m&quot;)">60m</button>',
+  ].join('');
+
   const chips = [];
   if (state.filters.sourceRepo) {
     chips.push('<span class="chip"><strong>Source</strong> ' + esc(state.filters.sourceRepo) + '</span>');
@@ -234,6 +289,8 @@ function renderFilterBar() {
   document.getElementById('filter-bar').innerHTML =
     (hasFilters ? chips.join('') : '<span class="chip">No filters</span>') +
     '<button class="btn" style="margin-left:auto" onclick="clearFilters()" ' + (hasFilters ? '' : 'disabled') + '>Reset filters</button>';
+
+  document.getElementById('top-window-label').textContent = 'Last ' + state.timeRange.replace('m', ' min');
 }
 
 function relTime(iso) {
@@ -291,7 +348,7 @@ async function loadHealth() {
 }
 
 async function loadSummary() {
-  const res = await fetch('/admin/projections');
+  const res = await fetch('/admin/projections?minutes=' + encodeURIComponent(state.timeRange.replace('m', '')));
   const data = await res.json();
   state.data.summary = data.summary || {};
   state.data.topReposLast5m = data.topReposLast5m || [];
@@ -379,8 +436,19 @@ function renderRecentEvents() {
     const trace = e.traceparent ? '<span class="mono" title="' + esc(e.traceparent) + '">' + esc(e.traceparent.slice(0, 20)) + '…</span>' : '—';
     const sourceRepo = e.sourceRepo || e.subject;
     const targetRepo = e.targetRepo || '';
-    return '<tr><td class="mono">' + esc(shortTime(e.time)) + '</td><td><button class="link-btn" onclick="setFilter(&quot;eventType&quot;,&quot;' + esc(e.type || '') + '&quot;)">' + typeBadge(e.type || '') + '</button></td><td class="trunc"><button class="link-btn" onclick="setFilter(&quot;sourceRepo&quot;,&quot;' + esc(sourceRepo) + '&quot;)">' + esc(sourceRepo) + '</button></td><td class="trunc">' + (targetRepo ? '<button class="link-btn" onclick="setFilter(&quot;targetRepo&quot;,&quot;' + esc(targetRepo) + '&quot;)">' + esc(targetRepo) + '</button>' : '—') + '</td><td class="mono">' + esc(e.appversion || '—') + '</td><td>' + trace + '</td></tr>';
-  }).join('') || '<tr><td colspan="6" class="empty">No events yet</td></tr>';
+    const journey = e.deliveryId ? '<button class="btn" onclick="openJourney(&quot;' + esc(e.deliveryId) + '&quot;)">Open</button>' : '—';
+    return '<tr><td class="mono">' + esc(shortTime(e.time)) + '</td><td><button class="link-btn" onclick="setFilter(&quot;eventType&quot;,&quot;' + esc(e.type || '') + '&quot;)">' + typeBadge(e.type || '') + '</button></td><td class="trunc"><button class="link-btn" onclick="setFilter(&quot;sourceRepo&quot;,&quot;' + esc(sourceRepo) + '&quot;)">' + esc(sourceRepo) + '</button></td><td class="trunc">' + (targetRepo ? '<button class="link-btn" onclick="setFilter(&quot;targetRepo&quot;,&quot;' + esc(targetRepo) + '&quot;)">' + esc(targetRepo) + '</button>' : '—') + '</td><td class="mono">' + esc(e.appversion || '—') + '</td><td>' + trace + '</td><td>' + journey + '</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="empty">No events yet</td></tr>';
+}
+
+function openJourney(deliveryId) {
+  document.getElementById('delivery-id-input').value = deliveryId;
+  if (state.mode !== 'ops') {
+    state.mode = 'ops';
+    writeStateToUrl();
+    renderAll();
+  }
+  lookupJourney();
 }
 
 async function lookupJourney() {
@@ -424,12 +492,19 @@ async function loadAll() {
 }
 
 function renderAll() {
+  document.querySelectorAll('.ops-section').forEach(function(node) {
+    node.style.display = state.mode === 'ops' ? '' : 'none';
+  });
+  document.querySelectorAll('.intel-section').forEach(function(node) {
+    node.style.display = state.mode === 'intel' ? '' : 'none';
+  });
   renderFilterBar();
   renderSummary();
   renderRepos();
   renderRecentEvents();
 }
 
+readStateFromUrl();
 loadAll();
 </script>
 </body>
@@ -456,9 +531,11 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
 
   // Legacy projections endpoint (kept for backward compat)
   if (event.rawPath === "/admin/projections") {
+    const requestedMinutes = Number(event.queryStringParameters?.minutes ?? "5");
+    const minutes = requestedMinutes === 15 || requestedMinutes === 60 ? requestedMinutes : 5;
     const [summary, topReposLast5m, recentFailures] = await Promise.all([
       readSummaryProjection({ ddb, projectionsTableName }),
-      readTopReposLastMinutes({ ddb, projectionsTableName, minutes: 5, limit: 10 }),
+      readTopReposLastMinutes({ ddb, projectionsTableName, minutes, limit: 10 }),
       readRecentFailures({ ddb, projectionsTableName, limit: 20 }),
     ]);
     return jsonResponse(200, { summary, topReposLast5m, recentFailures });
