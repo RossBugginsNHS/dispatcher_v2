@@ -84,3 +84,23 @@ variable "acm_certificate_arn" {
   default     = null
   nullable    = true
 }
+
+variable "enable_async_pipeline" {
+  type        = bool
+  description = "Enable async Lambda + SQS + EventBridge dispatcher pipeline"
+  default     = false
+}
+
+variable "lambda_package_s3_bucket" {
+  type        = string
+  description = "S3 bucket for Lambda deployment package zip"
+  default     = null
+  nullable    = true
+}
+
+variable "lambda_package_s3_key" {
+  type        = string
+  description = "S3 key for Lambda deployment package zip"
+  default     = null
+  nullable    = true
+}

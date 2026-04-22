@@ -26,6 +26,10 @@ locals {
   should_create_secret_access_policy = var.create_managed_secrets || (
     var.github_webhook_secret_arn != null && var.github_app_private_key_arn != null
   )
+
+  async_enabled            = var.enable_async_pipeline
+  has_lambda_package       = var.lambda_package_s3_bucket != null && var.lambda_package_s3_key != null
+  should_create_lambda_iam = local.async_enabled
 }
 
 data "aws_region" "current" {}
@@ -464,10 +468,10 @@ resource "aws_apigatewayv2_api" "webhook" {
 }
 
 resource "aws_apigatewayv2_integration" "alb_proxy" {
-  api_id             = aws_apigatewayv2_api.webhook.id
-  integration_type   = "HTTP_PROXY"
-  integration_method = "ANY"
-  integration_uri    = "http://${aws_lb.this.dns_name}/{proxy}"
+  api_id                 = aws_apigatewayv2_api.webhook.id
+  integration_type       = "HTTP_PROXY"
+  integration_method     = "ANY"
+  integration_uri        = "http://${aws_lb.this.dns_name}/{proxy}"
   payload_format_version = "1.0"
 }
 
@@ -483,4 +487,269 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 
   tags = local.base_tags
+}
+
+# ---------------------------------------------------------------------------
+# Async pipeline (optional): API Gateway -> Lambda ingress -> SQS -> Lambda
+# planner -> SQS -> Lambda dispatcher, with EventBridge facts.
+# ---------------------------------------------------------------------------
+
+resource "aws_sqs_queue" "dispatch_requests_dlq" {
+  count = local.async_enabled ? 1 : 0
+
+  name = "${local.name_prefix}-dispatch-requests-dlq"
+  tags = local.base_tags
+}
+
+resource "aws_sqs_queue" "dispatch_requests" {
+  count = local.async_enabled ? 1 : 0
+
+  name = "${local.name_prefix}-dispatch-requests"
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.dispatch_requests_dlq[0].arn
+    maxReceiveCount     = 5
+  })
+
+  tags = local.base_tags
+}
+
+resource "aws_sqs_queue" "dispatch_targets_dlq" {
+  count = local.async_enabled ? 1 : 0
+
+  name = "${local.name_prefix}-dispatch-targets-dlq"
+  tags = local.base_tags
+}
+
+resource "aws_sqs_queue" "dispatch_targets" {
+  count = local.async_enabled ? 1 : 0
+
+  name = "${local.name_prefix}-dispatch-targets"
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.dispatch_targets_dlq[0].arn
+    maxReceiveCount     = 5
+  })
+
+  tags = local.base_tags
+}
+
+resource "aws_cloudwatch_event_bus" "dispatch_facts" {
+  count = local.async_enabled ? 1 : 0
+
+  name = "${local.name_prefix}-dispatch-facts"
+
+  tags = local.base_tags
+}
+
+data "aws_iam_policy_document" "lambda_assume" {
+  count = local.should_create_lambda_iam ? 1 : 0
+
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "lambda" {
+  count = local.should_create_lambda_iam ? 1 : 0
+
+  name               = "${local.name_prefix}-lambda"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume[0].json
+  tags               = local.base_tags
+}
+
+data "aws_iam_policy_document" "lambda_runtime" {
+  count = local.should_create_lambda_iam ? 1 : 0
+
+  statement {
+    sid = "CloudWatchLogs"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+    ]
+    resources = ["arn:aws:logs:*:*:*"]
+  }
+
+  statement {
+    sid = "QueueWork"
+    actions = [
+      "sqs:SendMessage",
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:ChangeMessageVisibility",
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+    ]
+    resources = [
+      aws_sqs_queue.dispatch_requests[0].arn,
+      aws_sqs_queue.dispatch_targets[0].arn,
+    ]
+  }
+
+  statement {
+    sid = "PublishFacts"
+    actions = [
+      "events:PutEvents",
+    ]
+    resources = [aws_cloudwatch_event_bus.dispatch_facts[0].arn]
+  }
+
+  statement {
+    sid = "ReadRuntimeSecrets"
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = compact([
+      local.webhook_secret_arn,
+      local.app_private_key_arn,
+    ])
+  }
+}
+
+resource "aws_iam_policy" "lambda_runtime" {
+  count = local.should_create_lambda_iam ? 1 : 0
+
+  name   = "${local.name_prefix}-lambda-runtime"
+  policy = data.aws_iam_policy_document.lambda_runtime[0].json
+  tags   = local.base_tags
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_runtime" {
+  count = local.should_create_lambda_iam ? 1 : 0
+
+  role       = aws_iam_role.lambda[0].name
+  policy_arn = aws_iam_policy.lambda_runtime[0].arn
+}
+
+resource "aws_lambda_function" "ingress" {
+  count = local.async_enabled ? 1 : 0
+
+  function_name = "${local.name_prefix}-ingress"
+  role          = aws_iam_role.lambda[0].arn
+  runtime       = var.lambda_runtime
+  handler       = var.lambda_ingress_handler
+  timeout       = var.lambda_timeout_seconds
+  memory_size   = var.lambda_memory_mb
+  s3_bucket     = var.lambda_package_s3_bucket
+  s3_key        = var.lambda_package_s3_key
+
+  environment {
+    variables = {
+      LOG_LEVEL                     = var.log_level
+      GITHUB_WEBHOOK_SECRET_ARN     = local.webhook_secret_arn
+      DISPATCH_REQUESTS_QUEUE_URL   = aws_sqs_queue.dispatch_requests[0].id
+      DISPATCH_FACTS_EVENT_BUS_NAME = aws_cloudwatch_event_bus.dispatch_facts[0].name
+    }
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.has_lambda_package
+      error_message = "When enable_async_pipeline=true, set lambda_package_s3_bucket and lambda_package_s3_key."
+    }
+  }
+
+  tags = local.base_tags
+}
+
+resource "aws_lambda_function" "planner" {
+  count = local.async_enabled ? 1 : 0
+
+  function_name = "${local.name_prefix}-planner"
+  role          = aws_iam_role.lambda[0].arn
+  runtime       = var.lambda_runtime
+  handler       = var.lambda_planner_handler
+  timeout       = var.lambda_timeout_seconds
+  memory_size   = var.lambda_memory_mb
+  s3_bucket     = var.lambda_package_s3_bucket
+  s3_key        = var.lambda_package_s3_key
+
+  environment {
+    variables = {
+      LOG_LEVEL                     = var.log_level
+      GITHUB_APP_ID                 = var.github_app_id
+      GITHUB_APP_PRIVATE_KEY_ARN    = local.app_private_key_arn
+      DISPATCH_TARGETS_QUEUE_URL    = aws_sqs_queue.dispatch_targets[0].id
+      DISPATCH_FACTS_EVENT_BUS_NAME = aws_cloudwatch_event_bus.dispatch_facts[0].name
+      DEFAULT_DISPATCH_REF          = var.default_dispatch_ref
+      DISPATCH_MAX_RETRIES          = "2"
+      DISPATCH_RETRY_BASE_DELAY_MS  = "200"
+    }
+  }
+
+  tags = local.base_tags
+}
+
+resource "aws_lambda_function" "dispatcher" {
+  count = local.async_enabled ? 1 : 0
+
+  function_name = "${local.name_prefix}-dispatcher"
+  role          = aws_iam_role.lambda[0].arn
+  runtime       = var.lambda_runtime
+  handler       = var.lambda_dispatcher_handler
+  timeout       = var.lambda_timeout_seconds
+  memory_size   = var.lambda_memory_mb
+  s3_bucket     = var.lambda_package_s3_bucket
+  s3_key        = var.lambda_package_s3_key
+
+  environment {
+    variables = {
+      LOG_LEVEL                     = var.log_level
+      GITHUB_APP_ID                 = var.github_app_id
+      GITHUB_APP_PRIVATE_KEY_ARN    = local.app_private_key_arn
+      DISPATCH_FACTS_EVENT_BUS_NAME = aws_cloudwatch_event_bus.dispatch_facts[0].name
+      DISPATCH_MAX_RETRIES          = "2"
+      DISPATCH_RETRY_BASE_DELAY_MS  = "200"
+    }
+  }
+
+  tags = local.base_tags
+}
+
+resource "aws_lambda_event_source_mapping" "planner" {
+  count = local.async_enabled ? 1 : 0
+
+  event_source_arn = aws_sqs_queue.dispatch_requests[0].arn
+  function_name    = aws_lambda_function.planner[0].arn
+  batch_size       = 10
+}
+
+resource "aws_lambda_event_source_mapping" "dispatcher" {
+  count = local.async_enabled ? 1 : 0
+
+  event_source_arn = aws_sqs_queue.dispatch_targets[0].arn
+  function_name    = aws_lambda_function.dispatcher[0].arn
+  batch_size       = 10
+}
+
+resource "aws_lambda_permission" "apigw_invoke_ingress" {
+  count = local.async_enabled ? 1 : 0
+
+  statement_id  = "AllowApiGatewayInvokeIngress"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.ingress[0].function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.webhook.execution_arn}/*/*/webhooks/github"
+}
+
+resource "aws_apigatewayv2_integration" "lambda_ingress" {
+  count = local.async_enabled ? 1 : 0
+
+  api_id                 = aws_apigatewayv2_api.webhook.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.ingress[0].invoke_arn
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "webhook_ingress" {
+  count = local.async_enabled ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.webhook.id
+  route_key = "POST /webhooks/github"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_ingress[0].id}"
 }

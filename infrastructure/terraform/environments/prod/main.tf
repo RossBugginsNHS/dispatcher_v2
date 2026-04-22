@@ -12,6 +12,9 @@ module "dispatcher_service" {
   create_managed_secrets     = var.create_managed_secrets
   github_webhook_secret_arn  = var.github_webhook_secret_arn
   github_app_private_key_arn = var.github_app_private_key_arn
+  enable_async_pipeline      = var.enable_async_pipeline
+  lambda_package_s3_bucket   = var.lambda_package_s3_bucket
+  lambda_package_s3_key      = var.lambda_package_s3_key
   custom_domain_name         = var.custom_domain_name
   route53_zone_id            = var.route53_zone_id
   acm_certificate_arn        = var.acm_certificate_arn

@@ -42,3 +42,18 @@ output "github_app_private_key_arn" {
   description = "Secret ARN used for GITHUB_APP_PRIVATE_KEY"
   value       = local.app_private_key_arn
 }
+
+output "dispatch_requests_queue_url" {
+  description = "SQS queue URL for accepted dispatch requests"
+  value       = local.async_enabled ? aws_sqs_queue.dispatch_requests[0].id : null
+}
+
+output "dispatch_targets_queue_url" {
+  description = "SQS queue URL for target dispatch work"
+  value       = local.async_enabled ? aws_sqs_queue.dispatch_targets[0].id : null
+}
+
+output "dispatch_facts_event_bus_name" {
+  description = "EventBridge bus name for dispatch lifecycle facts"
+  value       = local.async_enabled ? aws_cloudwatch_event_bus.dispatch_facts[0].name : null
+}
