@@ -1,4 +1,5 @@
 import pino from "pino";
+import { isIP } from "node:net";
 
 import { env } from "../config/env.js";
 import {
@@ -16,10 +17,21 @@ import {
 } from "../async/event-store.js";
 
 const log = pino({ level: env.LOG_LEVEL });
+const adminIpAllowlist = new Set(
+  env.ADMIN_IP_ALLOWLIST
+    .split(",")
+    .map((ip) => ip.trim())
+    .filter((entry) => isValidIpAddress(entry)),
+);
 
 type ApiGatewayV2Event = {
   rawPath: string;
   queryStringParameters?: Record<string, string | undefined>;
+  requestContext?: {
+    http?: {
+      sourceIp?: string;
+    };
+  };
 };
 
 type ApiGatewayV2Response = {
@@ -655,6 +667,11 @@ loadAll();
 }
 
 export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Response> {
+  const sourceIp = event.requestContext?.http?.sourceIp;
+  if (!isAdminRequestAllowed(sourceIp, adminIpAllowlist)) {
+    return jsonResponse(403, { error: "Forbidden" });
+  }
+
   // Serve rich HTML dashboard
   if (event.rawPath === "/admin" || event.rawPath === "/admin/") {
     return {
@@ -730,3 +747,16 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
   return jsonResponse(404, { error: "Not Found" });
 }
 
+export function isAdminRequestAllowed(sourceIp: string | undefined, allowlist: Set<string>): boolean {
+  if (allowlist.size === 0) {
+    return true;
+  }
+  if (!sourceIp) {
+    return false;
+  }
+  return allowlist.has(sourceIp);
+}
+
+function isValidIpAddress(value: string): boolean {
+  return isIP(value) !== 0;
+}

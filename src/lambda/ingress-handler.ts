@@ -4,6 +4,7 @@ import { Webhooks } from "@octokit/webhooks";
 import { env } from "../config/env.js";
 import { enqueueJson, createEventBridgeClient, createSqsClient, publishFact } from "../async/clients.js";
 import { DispatchFacts, type DispatchRequestAcceptedMessage } from "../async/contracts.js";
+import { isReplayDelivery } from "../github/replay-protection.js";
 import type { WorkflowRunPayload } from "../github/types.js";
 import { getSecretValue } from "./runtime-secrets.js";
 
@@ -64,6 +65,12 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
     return { statusCode: 400, body: JSON.stringify({ error: "Missing required GitHub webhook headers or payload" }) };
   }
 
+  // Note: this in-memory cache is per-runtime-instance only; use a shared store
+  // (for example DynamoDB TTL) for stronger replay guarantees across instances.
+  if (isReplayDelivery(deliveryId)) {
+    return { statusCode: 409, body: JSON.stringify({ error: "Duplicate delivery" }) };
+  }
+
   const webhooks = new Webhooks({ secret: webhookSecret });
 
   try {
@@ -82,9 +89,19 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
     return { statusCode: 202, body: JSON.stringify({ accepted: true, ignored: true }) };
   }
 
-  const parsed = JSON.parse(payload) as WorkflowRunPayload & { action?: string };
+  let parsed: (WorkflowRunPayload & { action?: string }) | undefined;
+  try {
+    parsed = JSON.parse(payload) as WorkflowRunPayload & { action?: string };
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid JSON payload" }) };
+  }
+
   if (parsed.action !== "completed") {
     return { statusCode: 202, body: JSON.stringify({ accepted: true, ignored: true }) };
+  }
+
+  if (!parsed.installation?.id || !parsed.repository?.owner?.login || !parsed.repository?.name) {
+    return { statusCode: 400, body: JSON.stringify({ error: "Invalid workflow_run payload" }) };
   }
 
   const message: DispatchRequestAcceptedMessage = {

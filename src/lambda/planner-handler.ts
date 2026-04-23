@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-matcher/match.js";
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
 import { authorizeDispatchTargets } from "../services/authorization-service.js";
+import { evaluateSourceWorkflowRun, filterTargetsWithGuardrails } from "../services/dispatch-guardrails.js";
 import { createSqsClient, enqueueJson, createEventBridgeClient, publishFact } from "../async/clients.js";
 import { DispatchFacts, type DispatchRequestAcceptedMessage, type DispatchTargetWorkMessage } from "../async/contracts.js";
 import { createGitHubApp } from "./github-app.js";
@@ -49,6 +50,30 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
       const sourceRunId = payload.workflow_run.id ?? 0;
       const dispatchRef = payload.workflow_run.head_branch ?? env.DEFAULT_DISPATCH_REF;
 
+      const sourceAssessment = evaluateSourceWorkflowRun(payload, {
+        enforceSourceDefaultBranch: env.ENFORCE_SOURCE_DEFAULT_BRANCH,
+        maxTargetsPerRun: env.DISPATCH_MAX_TARGETS_PER_RUN,
+        sourceRepoAllowlist: env.SOURCE_REPO_ALLOWLIST,
+        targetRepoAllowlist: env.TARGET_REPO_ALLOWLIST,
+        sourceWorkflowAllowlist: env.SOURCE_WORKFLOW_ALLOWLIST,
+      });
+      if (!sourceAssessment.allowed) {
+        log.warn(
+          { deliveryId: message.deliveryId, sourceRepo: sourceRepoFullName, reason: sourceAssessment.reason },
+          "Planner skipped source workflow due to guardrail policy",
+        );
+        await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.planCreated, {
+          deliveryId: message.deliveryId,
+          sourceRepo: sourceRepoFullName,
+          sourceWorkflow,
+          sourceRunId,
+          candidateTargets: 0,
+          allowedTargets: 0,
+          deniedTargets: 0,
+        });
+        continue;
+      }
+
       const octokit = (await app.getInstallationOctokit(installationId)) as unknown as RepoContentsClient;
       const sourceConfig = await fetchDispatchingConfig(octokit, owner, repo);
 
@@ -64,13 +89,21 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
       }
 
       const candidates = matchOutboundTargets(sourceConfig.config, owner, payload.workflow_run.path);
+      const targetGuardrails = filterTargetsWithGuardrails(candidates, sourceRepoFullName, sourceWorkflow, {
+        enforceSourceDefaultBranch: env.ENFORCE_SOURCE_DEFAULT_BRANCH,
+        maxTargetsPerRun: env.DISPATCH_MAX_TARGETS_PER_RUN,
+        sourceRepoAllowlist: env.SOURCE_REPO_ALLOWLIST,
+        targetRepoAllowlist: env.TARGET_REPO_ALLOWLIST,
+        sourceWorkflowAllowlist: env.SOURCE_WORKFLOW_ALLOWLIST,
+      });
       const authorization = await authorizeDispatchTargets(
-        candidates,
+        targetGuardrails.allowed,
         sourceRepoFullName,
         repo,
         sourceWorkflow,
         async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
       );
+      const deniedTargets = [...targetGuardrails.denied, ...authorization.denied];
 
       await publishFact(eb, env.DISPATCH_FACTS_EVENT_BUS_NAME, DispatchFacts.planCreated, {
         deliveryId: message.deliveryId,
@@ -79,7 +112,7 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
         sourceRunId,
         candidateTargets: candidates.length,
         allowedTargets: authorization.allowed.length,
-        deniedTargets: authorization.denied.length,
+        deniedTargets: deniedTargets.length,
       });
 
       for (const target of authorization.allowed) {

@@ -3,7 +3,14 @@ import { normalizeWorkflowName, type ResolvedDispatchTarget } from "../domain/tr
 
 export type DeniedDispatchTarget = {
   target: ResolvedDispatchTarget;
-  reason: "missing_target_config" | "invalid_target_config" | "inbound_not_authorized";
+  reason:
+    | "missing_target_config"
+    | "invalid_target_config"
+    | "inbound_not_authorized"
+    | "target_repo_not_allowlisted"
+    | "self_dispatch_blocked"
+    | "duplicate_target"
+    | "max_targets_exceeded";
 };
 
 export async function authorizeDispatchTargets(

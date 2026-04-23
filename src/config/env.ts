@@ -23,6 +23,12 @@ const EnvSchema = z.object({
   CREATE_ISSUES: z.coerce.boolean().default(true),
   DISPATCH_MAX_RETRIES: z.coerce.number().int().min(0).default(2),
   DISPATCH_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(0).default(200),
+  ENFORCE_SOURCE_DEFAULT_BRANCH: z.coerce.boolean().default(true),
+  DISPATCH_MAX_TARGETS_PER_RUN: z.coerce.number().int().min(1).default(25),
+  SOURCE_REPO_ALLOWLIST: z.string().default(""),
+  TARGET_REPO_ALLOWLIST: z.string().default(""),
+  SOURCE_WORKFLOW_ALLOWLIST: z.string().default(""),
+  ADMIN_IP_ALLOWLIST: z.string().default(""),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
