@@ -3,6 +3,7 @@ import rawBody from "fastify-raw-body";
 import { Webhooks } from "@octokit/webhooks";
 
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "./types.js";
+import { isReplayDelivery } from "./replay-protection.js";
 
 type WorkflowRunCompletedHandler = (
   payload: WorkflowRunPayload,
@@ -61,6 +62,10 @@ export async function registerGitHubWebhookHandler(
         typeof signature !== "string"
       ) {
         return reply.code(400).send({ error: "Missing required GitHub webhook headers or payload" });
+      }
+
+      if (isReplayDelivery(deliveryId)) {
+        return reply.code(409).send({ error: "Duplicate delivery" });
       }
 
       try {

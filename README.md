@@ -256,8 +256,25 @@ All variables are validated at startup via `zod`. Unknown variables are ignored.
 | `CREATE_ISSUES` | No | `true` | Whether to create GitHub issues on dispatch failures (local mode) |
 | `DISPATCH_MAX_RETRIES` | No | `2` | Number of retry attempts for a failing dispatch call |
 | `DISPATCH_RETRY_BASE_DELAY_MS` | No | `200` | Base delay in ms for exponential backoff between retries |
+| `ENFORCE_SOURCE_DEFAULT_BRANCH` | No | `true` | If `true`, only workflow runs on the source repository default branch are eligible for dispatch |
+| `DISPATCH_MAX_TARGETS_PER_RUN` | No | `25` | Hard cap on authorized targets from one source workflow run (excess targets are denied) |
+| `SOURCE_REPO_ALLOWLIST` | No | empty | Comma-separated allowlist of source repositories (`org/repo`) allowed to trigger dispatches |
+| `TARGET_REPO_ALLOWLIST` | No | empty | Comma-separated allowlist of target repositories (`org/repo`) eligible for workflow dispatch |
+| `SOURCE_WORKFLOW_ALLOWLIST` | No | empty | Comma-separated allowlist of source workflow file names (for example `ci.yml`) |
+| `ADMIN_IP_ALLOWLIST` | No | empty | Comma-separated source IP allowlist for `/admin` and `/admin/api/*` Lambda endpoints |
 
 For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, and `GITHUB_APP_PRIVATE_KEY`.
+
+### Security Guard Rails (PoC-safe defaults)
+
+- Webhook processing rejects duplicate `x-github-delivery` values seen within a short replay window.
+- Dispatch planner enforces guard rails before authorization:
+  - default-branch-only source runs (configurable),
+  - optional source/target/workflow allowlists,
+  - self-dispatch block (`source repo + workflow` to itself),
+  - duplicate target suppression,
+  - maximum targets per run.
+- Admin observability endpoints are intentionally unauthenticated in this PoC, but can be restricted with `ADMIN_IP_ALLOWLIST`.
 
 ---
 

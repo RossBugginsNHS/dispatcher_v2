@@ -36,6 +36,13 @@ async function start(): Promise<void> {
       createIssues: env.CREATE_ISSUES,
       dispatchMaxRetries: env.DISPATCH_MAX_RETRIES,
       dispatchRetryBaseDelayMs: env.DISPATCH_RETRY_BASE_DELAY_MS,
+      guardrails: {
+        enforceSourceDefaultBranch: env.ENFORCE_SOURCE_DEFAULT_BRANCH,
+        maxTargetsPerRun: env.DISPATCH_MAX_TARGETS_PER_RUN,
+        sourceRepoAllowlist: env.SOURCE_REPO_ALLOWLIST,
+        targetRepoAllowlist: env.TARGET_REPO_ALLOWLIST,
+        sourceWorkflowAllowlist: env.SOURCE_WORKFLOW_ALLOWLIST,
+      },
       eventStore,
     });
   } else {
