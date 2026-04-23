@@ -2,14 +2,17 @@ import pino from "pino";
 
 import { env } from "../config/env.js";
 import {
-  computeHealthStatus,
+  computeHealthReport,
   createEventStoreClient,
+  readHourlyTrend,
   readJourneyByDeliveryId,
   readPerRepoStats,
+  readRecentDeliveries,
   readRecentEvents,
   readRecentFailures,
   readSummaryProjection,
   readTopReposLastMinutes,
+  summarizeDeliveryLatency,
 } from "../async/event-store.js";
 
 const log = pino({ level: env.LOG_LEVEL });
@@ -101,6 +104,25 @@ function htmlPage(): string {
     .tabs{display:flex;gap:8px;align-items:center}
     .tab{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:#f8faf9;cursor:pointer;font-size:.8rem}
     .tab.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    .health-table td:first-child{font-weight:600}
+    .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+    .status-dot.green{background:#16a34a}.status-dot.amber{background:#d97706}.status-dot.red{background:#dc2626}.status-dot.unknown{background:#9ca3af}
+    .mini-bars{display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:8px}
+    .mini-bar{flex:1;min-width:8px;border-radius:4px 4px 0 0;background:#9ca3af;position:relative}
+    .mini-bar.success{background:#0f766e}
+    .mini-bar.fail{background:#ef4444}
+    .mini-bar .tip{display:none;position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:#111827;color:#fff;border-radius:6px;padding:4px 6px;font-size:.68rem;white-space:nowrap;margin-bottom:6px}
+    .mini-bar:hover .tip{display:block}
+    .split-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
+    .id-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .id-chip{font-family:"IBM Plex Mono",monospace;font-size:.74rem;border:1px solid var(--line);background:#f8faf9;border-radius:999px;padding:5px 10px;cursor:pointer}
+    .legend{display:flex;gap:10px;align-items:center;font-size:.75rem;color:var(--muted);margin-top:8px}
+    .legend span{display:inline-flex;align-items:center;gap:4px}
+    .spark{height:10px;width:10px;border-radius:50%}
+    .spark.success{background:#0f766e}.spark.fail{background:#ef4444}.spark.total{background:#9ca3af}
+    @media (max-width: 900px){
+      .split-grid{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
@@ -123,6 +145,16 @@ function htmlPage(): string {
     <div class="banner-text"><div class="banner-title">Loading health status…</div></div>
   </div>
 
+  <div class="ops-section">
+  <h2>Health Checks</h2>
+  <div class="section" style="padding:0">
+    <table class="health-table">
+      <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+      <tbody id="health-checks"></tbody>
+    </table>
+  </div>
+  </div>
+
   <div class="section" style="padding:10px 12px">
     <div class="tabs" id="mode-tabs" style="margin-bottom:8px"></div>
     <div class="filters" id="filter-bar"></div>
@@ -139,6 +171,19 @@ function htmlPage(): string {
   </div>
 
   <div class="intel-section">
+  <h2>Business Signals</h2>
+  <div class="section split-grid">
+    <div>
+      <div class="k">Last 24h Event Trend</div>
+      <div class="mini-bars" id="hourly-trend"></div>
+      <div class="legend"><span><i class="spark total"></i>Total</span><span><i class="spark success"></i>Success</span><span><i class="spark fail"></i>Failed</span></div>
+    </div>
+    <div>
+      <div class="k">Delivery Latency (Request to First Success)</div>
+      <div class="grid" id="latency-cards" style="margin:8px 0 0 0"></div>
+    </div>
+  </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
     <div>
       <h2>Top Source Repos (<span id="top-window-label">Last 5 min</span>)</h2>
@@ -178,6 +223,7 @@ function htmlPage(): string {
       <button class="btn" onclick="lookupJourney()">Look up</button>
     </div>
     <div id="journey-result"></div>
+    <div class="id-list" id="recent-delivery-ids"></div>
   </div>
 
   <h2>Recent Failures</h2>
@@ -200,11 +246,19 @@ const state = {
     eventType: '',
   },
   data: {
+    health: null,
     summary: null,
     topReposLast5m: [],
     recentFailures: [],
+    recentDeliveries: [],
+    hourlyTrend: [],
+    latency: null,
     repos: [],
     events: [],
+  },
+  errors: {
+    repos: '',
+    events: '',
   },
 };
 
@@ -325,6 +379,19 @@ function ratePill(succeeded, failed) {
   return '<span class="rate-pill ' + cls + '">' + pct + '%</span>';
 }
 
+function statusCell(status) {
+  const value = status || 'unknown';
+  return '<span class="status-dot ' + value + '"></span>' + esc(value.toUpperCase());
+}
+
+function formatSeconds(value) {
+  if (value == null) return '—';
+  if (value < 60) return value + 's';
+  const mins = Math.floor(value / 60);
+  const secs = value % 60;
+  return mins + 'm ' + secs + 's';
+}
+
 function funnelBar(count, base) {
   if (base === 0) return '<div class="fbar-bg"><div class="fbar" style="width:0%"></div></div>';
   const pct = Math.min(100, Math.round(count / base * 100));
@@ -333,7 +400,11 @@ function funnelBar(count, base) {
 
 async function loadHealth() {
   const res = await fetch('/admin/api/health');
+  if (!res.ok) {
+    throw new Error('Health API failed with ' + res.status);
+  }
   const h = await res.json();
+  state.data.health = h;
   const status = h.status || 'unknown';
   const banner = document.getElementById('health-banner');
   banner.className = 'banner ' + status;
@@ -349,10 +420,16 @@ async function loadHealth() {
 
 async function loadSummary() {
   const res = await fetch('/admin/projections?minutes=' + encodeURIComponent(state.timeRange.replace('m', '')));
+  if (!res.ok) {
+    throw new Error('Projections API failed with ' + res.status);
+  }
   const data = await res.json();
   state.data.summary = data.summary || {};
   state.data.topReposLast5m = data.topReposLast5m || [];
   state.data.recentFailures = data.recentFailures || [];
+  state.data.recentDeliveries = data.recentDeliveries || [];
+  state.data.hourlyTrend = data.hourlyTrend || [];
+  state.data.latency = data.latency || null;
 }
 
 function renderSummary() {
@@ -406,11 +483,24 @@ function renderSummary() {
 }
 
 async function loadRepos() {
-  const res = await fetch('/admin/api/repos');
-  state.data.repos = await res.json();
+  state.errors.repos = '';
+  try {
+    const res = await fetch('/admin/api/repos');
+    if (!res.ok) {
+      throw new Error('Repos API failed with ' + res.status);
+    }
+    state.data.repos = await res.json();
+  } catch (err) {
+    state.data.repos = [];
+    state.errors.repos = err.message || 'Unknown repos error';
+  }
 }
 
 function renderRepos() {
+  if (state.errors.repos) {
+    document.getElementById('repo-stats').innerHTML = '<tr><td colspan="4" class="empty">Unable to load repo stats: ' + esc(state.errors.repos) + '</td></tr>';
+    return;
+  }
   document.getElementById('repo-stats').innerHTML = (state.data.repos || []).filter(function(r) {
     if (state.filters.sourceRepo && r.repo !== state.filters.sourceRepo) return false;
     return true;
@@ -420,11 +510,24 @@ function renderRepos() {
 }
 
 async function loadRecentEvents() {
-  const res = await fetch('/admin/api/recent-events');
-  state.data.events = await res.json();
+  state.errors.events = '';
+  try {
+    const res = await fetch('/admin/api/recent-events');
+    if (!res.ok) {
+      throw new Error('Recent events API failed with ' + res.status);
+    }
+    state.data.events = await res.json();
+  } catch (err) {
+    state.data.events = [];
+    state.errors.events = err.message || 'Unknown recent events error';
+  }
 }
 
 function renderRecentEvents() {
+  if (state.errors.events) {
+    document.getElementById('recent-events').innerHTML = '<tr><td colspan="7" class="empty">Unable to load recent events: ' + esc(state.errors.events) + '</td></tr>';
+    return;
+  }
   const events = (state.data.events || []).filter(function(e) {
     if (state.filters.sourceRepo && (e.sourceRepo || e.subject) !== state.filters.sourceRepo) return false;
     if (state.filters.targetRepo && (e.targetRepo || '') !== state.filters.targetRepo) return false;
@@ -439,6 +542,43 @@ function renderRecentEvents() {
     const journey = e.deliveryId ? '<button class="btn" onclick="openJourney(&quot;' + esc(e.deliveryId) + '&quot;)">Open</button>' : '—';
     return '<tr><td class="mono">' + esc(shortTime(e.time)) + '</td><td><button class="link-btn" onclick="setFilter(&quot;eventType&quot;,&quot;' + esc(e.type || '') + '&quot;)">' + typeBadge(e.type || '') + '</button></td><td class="trunc"><button class="link-btn" onclick="setFilter(&quot;sourceRepo&quot;,&quot;' + esc(sourceRepo) + '&quot;)">' + esc(sourceRepo) + '</button></td><td class="trunc">' + (targetRepo ? '<button class="link-btn" onclick="setFilter(&quot;targetRepo&quot;,&quot;' + esc(targetRepo) + '&quot;)">' + esc(targetRepo) + '</button>' : '—') + '</td><td class="mono">' + esc(e.appversion || '—') + '</td><td>' + trace + '</td><td>' + journey + '</td></tr>';
   }).join('') || '<tr><td colspan="7" class="empty">No events yet</td></tr>';
+}
+
+function renderHealthChecks() {
+  const checks = (state.data.health && state.data.health.checks) || [];
+  document.getElementById('health-checks').innerHTML = checks.map(function(check) {
+    return '<tr><td>' + esc(check.label || check.id) + '</td><td>' + statusCell(check.status) + '</td><td>' + esc(check.detail || '') + '</td></tr>';
+  }).join('') || '<tr><td colspan="3" class="empty">No checks yet</td></tr>';
+}
+
+function renderBusinessSignals() {
+  const trend = state.data.hourlyTrend || [];
+  const max = trend.reduce(function(acc, item) { return Math.max(acc, Number(item.totalEvents || 0)); }, 0) || 1;
+  document.getElementById('hourly-trend').innerHTML = trend.map(function(item) {
+    const totalHeight = Math.max(6, Math.round((Number(item.totalEvents || 0) / max) * 100));
+    const successHeight = Math.max(3, Math.round((Number(item.triggerSucceeded || 0) / max) * 100));
+    const failHeight = Math.max(2, Math.round((Number(item.triggerFailed || 0) / max) * 100));
+    return '<div style="display:flex;flex-direction:column;justify-content:flex-end;gap:2px;flex:1">'
+      + '<div class="mini-bar fail" style="height:' + failHeight + '%"><span class="tip">' + esc(item.hour) + ' · Failed: ' + esc(item.triggerFailed || 0) + '</span></div>'
+      + '<div class="mini-bar success" style="height:' + successHeight + '%"><span class="tip">' + esc(item.hour) + ' · Success: ' + esc(item.triggerSucceeded || 0) + '</span></div>'
+      + '<div class="mini-bar" style="height:' + totalHeight + '%"><span class="tip">' + esc(item.hour) + ' · Total: ' + esc(item.totalEvents || 0) + '</span></div>'
+      + '</div>';
+  }).join('') || '<div class="empty">No trend data yet</div>';
+
+  const latency = state.data.latency || {};
+  document.getElementById('latency-cards').innerHTML = [
+    '<div class="card"><div class="k">Sample Size</div><div class="v">' + esc(latency.count || 0) + '</div></div>',
+    '<div class="card"><div class="k">P50</div><div class="v">' + esc(formatSeconds(latency.p50Seconds)) + '</div></div>',
+    '<div class="card"><div class="k">P95</div><div class="v">' + esc(formatSeconds(latency.p95Seconds)) + '</div></div>',
+    '<div class="card"><div class="k">Average</div><div class="v">' + esc(formatSeconds(latency.avgSeconds)) + '</div></div>',
+  ].join('');
+}
+
+function renderJourneyIndex() {
+  const deliveries = state.data.recentDeliveries || [];
+  document.getElementById('recent-delivery-ids').innerHTML = deliveries.slice(0, 12).map(function(item) {
+    return '<button class="id-chip" title="' + esc(item.sourceRepo || '') + '" onclick="openJourney(&quot;' + esc(item.deliveryId) + '&quot;)">' + esc(item.deliveryId.slice(0, 14)) + '…</button>';
+  }).join('') || '<span class="empty">No delivery IDs yet. Trigger a source workflow and refresh.</span>';
 }
 
 function openJourney(deliveryId) {
@@ -502,6 +642,9 @@ function renderAll() {
   renderSummary();
   renderRepos();
   renderRecentEvents();
+  renderHealthChecks();
+  renderBusinessSignals();
+  renderJourneyIndex();
 }
 
 readStateFromUrl();
@@ -512,14 +655,6 @@ loadAll();
 }
 
 export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Response> {
-  if (!env.DISPATCH_PROJECTIONS_TABLE_NAME) {
-    throw new Error("DISPATCH_PROJECTIONS_TABLE_NAME must be set");
-  }
-
-  const ddb = createEventStoreClient();
-  const projectionsTableName = env.DISPATCH_PROJECTIONS_TABLE_NAME;
-  const eventsTableName = env.DISPATCH_EVENTS_TABLE_NAME;
-
   // Serve rich HTML dashboard
   if (event.rawPath === "/admin" || event.rawPath === "/admin/") {
     return {
@@ -529,22 +664,37 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
     };
   }
 
+  if (!env.DISPATCH_PROJECTIONS_TABLE_NAME) {
+    throw new Error("DISPATCH_PROJECTIONS_TABLE_NAME must be set");
+  }
+
+  const ddb = createEventStoreClient();
+  const projectionsTableName = env.DISPATCH_PROJECTIONS_TABLE_NAME;
+  const eventsTableName = env.DISPATCH_EVENTS_TABLE_NAME;
+
   // Legacy projections endpoint (kept for backward compat)
   if (event.rawPath === "/admin/projections") {
     const requestedMinutes = Number(event.queryStringParameters?.minutes ?? "5");
     const minutes = requestedMinutes === 15 || requestedMinutes === 60 ? requestedMinutes : 5;
-    const [summary, topReposLast5m, recentFailures] = await Promise.all([
+    const [summary, topReposLast5m, recentFailures, recentDeliveries, hourlyTrend] = await Promise.all([
       readSummaryProjection({ ddb, projectionsTableName }),
       readTopReposLastMinutes({ ddb, projectionsTableName, minutes, limit: 10 }),
       readRecentFailures({ ddb, projectionsTableName, limit: 20 }),
+      readRecentDeliveries({ ddb, projectionsTableName, limit: 20 }),
+      readHourlyTrend({ ddb, projectionsTableName, hours: 24 }),
     ]);
-    return jsonResponse(200, { summary, topReposLast5m, recentFailures });
+    const latency = summarizeDeliveryLatency(recentDeliveries);
+    return jsonResponse(200, { summary, topReposLast5m, recentFailures, recentDeliveries, hourlyTrend, latency });
   }
 
   // Health API
   if (event.rawPath === "/admin/api/health") {
-    const summary = await readSummaryProjection({ ddb, projectionsTableName });
-    const health = computeHealthStatus(summary);
+    const [summary, recentDeliveries] = await Promise.all([
+      readSummaryProjection({ ddb, projectionsTableName }),
+      readRecentDeliveries({ ddb, projectionsTableName, limit: 50 }),
+    ]);
+    const latency = summarizeDeliveryLatency(recentDeliveries);
+    const health = computeHealthReport({ summary, latency });
     return jsonResponse(200, health);
   }
 

@@ -3,12 +3,11 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Bootstrap Terraform remote state backend resources (S3 + DynamoDB).
+Bootstrap Terraform remote state backend resources (S3 only).
 
 Usage:
   ./infrastructure/terraform/bootstrap-backend.sh \
     --bucket <state-bucket-name> \
-    --lock-table <dynamodb-lock-table-name> \
     --region <aws-region>
 
 Optional environment variables:
@@ -18,23 +17,17 @@ Optional environment variables:
 Examples:
   AWS_PROFILE=nhs-notify-admin ./infrastructure/terraform/bootstrap-backend.sh \
     --bucket dispatcher-v2-tf-state \
-    --lock-table dispatcher-v2-tf-locks \
     --region eu-west-2
 EOF
 }
 
 BUCKET=""
-LOCK_TABLE=""
 REGION="${AWS_REGION:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --bucket)
       BUCKET="$2"
-      shift 2
-      ;;
-    --lock-table)
-      LOCK_TABLE="$2"
       shift 2
       ;;
     --region)
@@ -53,7 +46,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$BUCKET" || -z "$LOCK_TABLE" || -z "$REGION" ]]; then
+if [[ -z "$BUCKET" || -z "$REGION" ]]; then
   echo "Missing required arguments." >&2
   usage
   exit 1
@@ -96,19 +89,6 @@ aws "${AWS_ARGS[@]}" s3api put-public-access-block \
   --bucket "$BUCKET" \
   --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true >/dev/null
 
-echo "==> Ensuring DynamoDB lock table exists: $LOCK_TABLE"
-if aws "${AWS_ARGS[@]}" dynamodb describe-table --table-name "$LOCK_TABLE" >/dev/null 2>&1; then
-  echo "Lock table already exists"
-else
-  aws "${AWS_ARGS[@]}" dynamodb create-table \
-    --table-name "$LOCK_TABLE" \
-    --attribute-definitions AttributeName=LockID,AttributeType=S \
-    --key-schema AttributeName=LockID,KeyType=HASH \
-    --billing-mode PAY_PER_REQUEST >/dev/null
-  aws "${AWS_ARGS[@]}" dynamodb wait table-exists --table-name "$LOCK_TABLE"
-  echo "Lock table created"
-fi
-
 cat <<EOF
 
 Bootstrap complete.
@@ -116,7 +96,6 @@ Bootstrap complete.
 Set these GitHub repository/environment variables:
   TF_STATE_BUCKET=$BUCKET
   TF_STATE_REGION=$REGION
-  TF_STATE_LOCK_TABLE=$LOCK_TABLE
 
 Migrate existing local dev state to remote backend:
   cd infrastructure/terraform/environments/dev
@@ -125,7 +104,7 @@ Migrate existing local dev state to remote backend:
     -backend-config="key=dispatcher-v2/dev/terraform.tfstate" \
     -backend-config="region=$REGION" \
     -backend-config="encrypt=true" \
-    -backend-config="dynamodb_table=$LOCK_TABLE"
+    -backend-config="use_lockfile=true"
 
 Initialize prod backend (no migration needed if brand new):
   cd infrastructure/terraform/environments/prod
@@ -134,5 +113,5 @@ Initialize prod backend (no migration needed if brand new):
     -backend-config="key=dispatcher-v2/prod/terraform.tfstate" \
     -backend-config="region=$REGION" \
     -backend-config="encrypt=true" \
-    -backend-config="dynamodb_table=$LOCK_TABLE"
+    -backend-config="use_lockfile=true"
 EOF

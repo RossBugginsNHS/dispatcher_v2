@@ -1,0 +1,448 @@
+# dispatcher_v2
+
+A GitHub App backend service for **cross-repository workflow dispatching**. When a workflow completes in a source repository, dispatcher_v2 reads `dispatching.yml` configuration files, authorises eligible targets, and triggers matching workflows in those target repositories via the GitHub Actions workflow dispatch API.
+
+This is a rewrite of dispatcher v1 focused exclusively on dispatching behaviour. All repository vending, provisioning, and Terraform-execution-from-webhooks behaviour has been removed.
+
+---
+
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [dispatching.yml Contract](#dispatchingyml-contract)
+- [Architecture](#architecture)
+  - [Lambda Functions](#lambda-functions)
+  - [AWS Infrastructure](#aws-infrastructure)
+  - [Event and Projection Model](#event-and-projection-model)
+- [Admin Observability Dashboard](#admin-observability-dashboard)
+- [Local Development](#local-development)
+- [Environment Variables](#environment-variables)
+- [Deployment](#deployment)
+  - [CI/CD Pipeline](#cicd-pipeline)
+  - [Manual Dev Deploy](#manual-dev-deploy)
+- [Infrastructure (Terraform)](#infrastructure-terraform)
+- [Testing](#testing)
+- [Repository Structure](#repository-structure)
+
+---
+
+## How It Works
+
+1. A GitHub workflow completes in a **source repository**.
+2. GitHub sends a `workflow_run` webhook to the dispatcher ingress endpoint.
+3. The ingress Lambda verifies the webhook signature and enqueues the payload to an SQS queue.
+4. The **planner** Lambda consumes the queue, reads `dispatching.yml` from the source repo, reads `dispatching.yml` from each candidate target repo to verify inbound permissions, and enqueues authorised dispatch work items.
+5. The **dispatcher** Lambda consumes those work items and calls the GitHub Actions workflow dispatch API for each target, with retry/backoff.
+6. Facts about each step (request accepted, plan created, targets queued, trigger succeeded/failed) are published to an EventBridge event bus.
+7. The **facts processor** Lambda consumes EventBridge events and writes them into two DynamoDB tables (raw event store and pre-computed projections).
+8. The **admin observability** Lambda serves a web dashboard and JSON APIs that read those projections to show health, funnel metrics, per-repo stats, hourly trends, and delivery timelines.
+
+---
+
+## dispatching.yml Contract
+
+Each repository places a `dispatching.yml` file at the root of the default branch. The schema supports two top-level keys: `outbound` and `inbound`.
+
+```yaml
+# Source repository: declares which target workflows to trigger
+outbound:
+  - source:
+      workflow: ci.yml          # workflow in this repo that triggers dispatch
+    targets:
+      - repository: org/target-repo
+        workflow: cd.yml        # workflow to trigger in the target repo
+
+# Target repository: declares which sources are permitted to trigger it
+inbound:
+  - source:
+      repository: org/source-repo
+      workflow: ci.yml
+    targets:
+      - workflow: cd.yml
+```
+
+**Authorization is bilateral.** A dispatch only proceeds if:
+- The source repo's `outbound` rule names the target repo and workflow.
+- The target repo's `inbound` rule explicitly permits that source repo and workflow.
+
+Missing or invalid `dispatching.yml` files are treated as having no rules (no-op, not an error).
+
+---
+
+## Architecture
+
+```
+GitHub webhook
+      │
+      ▼
+┌─────────────────┐
+│  ingress Lambda │  Verifies signature → SQS dispatch-requests
+└─────────────────┘
+      │
+      ▼
+┌─────────────────┐
+│  planner Lambda │  Reads dispatching.yml (source + targets) → SQS dispatch-targets
+└─────────────────┘
+      │
+      ▼
+┌──────────────────┐
+│ dispatcher Lambda│  Calls GitHub workflow_dispatch API (with retry)
+└──────────────────┘
+      │
+      ▼ (all stages publish facts)
+┌──────────────────────┐
+│  EventBridge bus     │
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│ facts-processor      │  Writes raw events + updates projections → DynamoDB
+│ Lambda               │
+└──────────────────────┘
+      │
+      ▼
+┌──────────────────────┐
+│  admin Lambda        │  Serves dashboard HTML + JSON APIs from DynamoDB
+└──────────────────────┘
+```
+
+### Lambda Functions
+
+| Function | Handler | Trigger | Purpose |
+|---|---|---|---|
+| `ingress` | `dist/lambda/ingress-handler.handler` | API Gateway (POST /webhooks/github) | Validates GitHub webhook HMAC; enqueues payload to `dispatch-requests` SQS queue |
+| `planner` | `dist/lambda/planner-handler.handler` | SQS (`dispatch-requests`) | Reads `dispatching.yml` from source + target repos; authorises targets; enqueues work to `dispatch-targets` |
+| `dispatcher` | `dist/lambda/dispatcher-handler.handler` | SQS (`dispatch-targets`) | Calls `workflow_dispatch` GitHub API for each authorised target; retries with exponential backoff |
+| `facts-processor` | `dist/lambda/facts-processor-handler.handler` | EventBridge rule | Appends CloudEvent to the events DynamoDB table; updates pre-computed projections |
+| `admin` | `dist/lambda/admin-observability-handler.handler` | API Gateway (`/admin/*`) | Serves the HTML dashboard and all `/admin/api/*` JSON endpoints |
+
+All five functions use the **same Docker image** built from the repository root. Terraform sets the per-function entry point via `image_config.command`.
+
+### AWS Infrastructure
+
+| Resource | Purpose |
+|---|---|
+| ECR repository | Stores built Docker images; keeps the last 30 |
+| API Gateway v2 (HTTP) | Routes `/webhooks/github`, `/health`, and `/admin/*` to the appropriate Lambda functions |
+| SQS `dispatch-requests` | Buffer between ingress and planner (DLQ after 5 receives) |
+| SQS `dispatch-targets` | Buffer between planner and dispatcher (DLQ after 5 receives) |
+| EventBridge custom bus | `dispatch-facts` bus receives domain events from planner, dispatcher, and facts-processor |
+| DynamoDB `dispatch-events` | Immutable append-only event store with GSI support for delivery-ID and repo lookups |
+| DynamoDB `dispatch-projections` | Pre-computed read models: summary counters, per-repo stats, hourly buckets, delivery funnels |
+| IAM role `{prefix}-lambda` | Shared execution role for all five Lambda functions |
+| Secrets Manager | Stores GitHub webhook secret and app private key (managed or externally provided) |
+| CloudWatch Log Groups | One per Lambda function |
+
+### Event and Projection Model
+
+Facts are structured as **CloudEvents** with `detail-type` values:
+
+| Fact | When emitted |
+|---|---|
+| `dispatch.request.accepted` | Ingress has validated and enqueued a webhook |
+| `dispatch.plan.created` | Planner has resolved authorised targets (0 or more) |
+| `dispatch.target.queued` | A single dispatch work item has been enqueued |
+| `dispatch.trigger.succeeded` | GitHub workflow_dispatch API call succeeded |
+| `dispatch.trigger.failed` | All retry attempts for a dispatch exhausted |
+
+The facts-processor writes each event to a DynamoDB table with a composite key `pk = EVENT#{type}#{hour}` / `sk = {deliveryId}#{eventId}`, and maintains pre-aggregated projections for:
+
+- **Summary counters** — total events, accepted, plan created, queued, succeeded, failed
+- **Per-repo statistics** — counts broken down by source repository
+- **Hourly trend buckets** — counts bucketed by UTC hour for chart rendering
+- **Delivery funnels** — per-delivery-id record tracking each stage timestamp and outcome
+
+---
+
+## Admin Observability Dashboard
+
+The admin Lambda serves a self-contained dashboard at `/admin` (no external dependencies, pure HTML/CSS/JS).
+
+### Dashboard Sections
+
+- **Health banner** — green/amber/red status with human-readable reasons
+- **Summary cards** — total events, accepted, queued targets, succeeded, failed
+- **Delivery funnel bar chart** — shows drop-off at each pipeline stage
+- **Delivery latency cards** — P50, P95, and average seconds from accepted to trigger
+- **Hourly trend table** — succeeded and failed counts per UTC hour
+- **Per-repo stats table** — success rate pill per source repository
+- **Recent deliveries** — last N deliveries with source/target repo chip labels and status badges
+- **Journey explorer** — enter a delivery ID to trace all events for a single dispatch
+
+### API Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Lambda liveness check (`{"status":"ok"}`) |
+| `GET` | `/admin` | HTML dashboard |
+| `GET` | `/admin/api/health` | JSON health report (status, reasons, checks, latency) |
+| `GET` | `/admin/projections` | Full projections payload (summary, recentDeliveries, hourlyTrend, latency) |
+| `GET` | `/admin/api/repos` | Per-repository statistics array |
+| `GET` | `/admin/api/recent-events` | Raw recent CloudEvents |
+| `GET` | `/admin/api/journey?deliveryId=<id>` | All events for a single delivery ID |
+
+Health checks include: success rate, dispatch backlog depth, recent failures, data freshness, and latency threshold.
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Node.js 22 (see `.tool-versions`)
+- npm
+- A GitHub App with a webhook secret and private key
+
+### Setup
+
+```bash
+git clone https://github.com/RossBugginsNHS/dispatcher_v2
+cd dispatcher_v2
+npm install
+cp .env.example .env
+# Edit .env with your GitHub App credentials and any optional settings
+```
+
+### Run in development mode
+
+```bash
+npm run dev
+```
+
+The Fastify server starts on `PORT` (default `3000`) with hot-reload via `tsx watch`.
+
+Available local endpoints:
+
+- `GET /health`
+- `GET /version`
+- `POST /webhooks/github`
+- `GET /admin/installations`
+- `GET /admin/logs`
+
+> Note: The full async pipeline (SQS → EventBridge → DynamoDB) only runs in AWS. Locally, webhook events are handled synchronously by the in-process `WorkflowRunHandler` and an in-memory event store.
+
+### Build
+
+```bash
+npm run build        # compiles TypeScript to dist/
+npm run lint         # ESLint
+npm run test         # Vitest (run once)
+npm run test:watch   # Vitest (watch mode)
+npm run format       # Prettier
+```
+
+---
+
+## Environment Variables
+
+All variables are validated at startup via `zod`. Unknown variables are ignored.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `PORT` | No | `3000` | HTTP server port (local Fastify mode only) |
+| `LOG_LEVEL` | No | `info` | Pino log level: `fatal`, `error`, `warn`, `info`, `debug`, `trace`, `silent` |
+| `APP_VERSION` | No | `local` | Build version string, injected by CI |
+| `GITHUB_APP_ID` | Yes (runtime) | — | GitHub App numeric ID |
+| `GITHUB_WEBHOOK_SECRET` | Conditional | — | Webhook HMAC secret (plain text, or set `_ARN` instead) |
+| `GITHUB_WEBHOOK_SECRET_ARN` | Conditional | — | AWS Secrets Manager ARN for webhook secret |
+| `GITHUB_APP_PRIVATE_KEY` | Conditional | — | GitHub App private key PEM (plain text, or set `_ARN` instead) |
+| `GITHUB_APP_PRIVATE_KEY_ARN` | Conditional | — | AWS Secrets Manager ARN for private key |
+| `DISPATCH_REQUESTS_QUEUE_URL` | Lambda only | — | SQS URL for the `dispatch-requests` queue |
+| `DISPATCH_TARGETS_QUEUE_URL` | Lambda only | — | SQS URL for the `dispatch-targets` queue |
+| `DISPATCH_FACTS_EVENT_BUS_NAME` | Lambda only | `default` | EventBridge bus name for fact publishing |
+| `DISPATCH_EVENTS_TABLE_NAME` | Lambda only | — | DynamoDB table name for raw events |
+| `DISPATCH_PROJECTIONS_TABLE_NAME` | Lambda only | — | DynamoDB table name for projections |
+| `DEFAULT_DISPATCH_REF` | No | `main` | Git ref used for `workflow_dispatch` if the source run's branch is unavailable |
+| `CREATE_ISSUES` | No | `true` | Whether to create GitHub issues on dispatch failures (local mode) |
+| `DISPATCH_MAX_RETRIES` | No | `2` | Number of retry attempts for a failing dispatch call |
+| `DISPATCH_RETRY_BASE_DELAY_MS` | No | `200` | Base delay in ms for exponential backoff between retries |
+
+For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_ID`, `GITHUB_WEBHOOK_SECRET`, and `GITHUB_APP_PRIVATE_KEY`.
+
+---
+
+## Deployment
+
+### CI/CD Pipeline
+
+The GitHub Actions workflow at [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml) runs on every push to `main` and on pull requests.
+
+**Jobs:**
+
+1. **quality** — `npm ci`, `npm run build`, `npm run lint`, `npm test`
+2. **terraform-validate** — `terraform validate` for both `dev` and `prod` environments
+3. **deploy-dev** — builds and pushes the Docker image to ECR (tagged with the commit SHA), then runs `terraform apply` for the `dev` environment (skipped on pull requests)
+4. **deploy-prod** — same as dev, runs only when manually triggered via `workflow_dispatch` with `deploy_prod=true`
+
+**Required GitHub Secrets / Variables:**
+
+| Name | Type | Description |
+|---|---|---|
+| `AWS_ROLE_TO_ASSUME` | Secret | IAM role ARN for OIDC authentication |
+| `AWS_REGION` | Variable | e.g. `eu-west-2` |
+| `ECR_REPOSITORY_DEV` | Variable | ECR repo name for dev, e.g. `dispatcher-v2-dev-dispatcher` |
+| `ECR_REPOSITORY_PROD` | Variable | ECR repo name for prod |
+
+Set secrets and variables with the GitHub CLI:
+
+```bash
+gh secret set AWS_ROLE_TO_ASSUME --body "arn:aws:iam::<account>:role/<role>"
+gh variable set AWS_REGION --body "eu-west-2"
+gh variable set ECR_REPOSITORY_DEV --body "dispatcher-v2-dev-dispatcher"
+gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
+```
+
+Create the `dev` and `prod` environments (add manual review protection to `prod`):
+
+```bash
+gh api -X PUT repos/<owner>/dispatcher_v2/environments/dev
+gh api -X PUT repos/<owner>/dispatcher_v2/environments/prod
+```
+
+### Manual Dev Deploy
+
+The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-apply cycle for local use.
+
+```bash
+# Full build + push + apply (interactive approval)
+./scripts/apply-dev-infra.sh
+
+# Plan only (no changes applied)
+./scripts/apply-dev-infra.sh --plan-only
+
+# Apply without interactive approval
+./scripts/apply-dev-infra.sh --auto-approve
+
+# Skip image build (use existing TF_VAR_container_image)
+./scripts/apply-dev-infra.sh --skip-image-build --auto-approve
+```
+
+The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `TF_VAR_container_image`, `TF_VAR_github_app_id`, and `LAMBDA_IMAGE_URI` from the environment or `.env`. Set `AWS_PROFILE` in `.env` to avoid passing it manually.
+
+---
+
+## Infrastructure (Terraform)
+
+Infrastructure is managed with Terraform. The module lives at `infrastructure/terraform/modules/dispatcher_service/` and is instantiated by environment configs under `infrastructure/terraform/environments/`.
+
+### Backend
+
+State is stored in S3 with native S3 locking (`use_lockfile = true`). Backend configuration is in `backend.hcl` (gitignored). Copy `backend.hcl.example` and fill in your bucket name and region:
+
+```bash
+cp infrastructure/terraform/environments/dev/backend.hcl.example \
+   infrastructure/terraform/environments/dev/backend.hcl
+# edit backend.hcl
+```
+
+Bootstrap the S3 backend bucket (first time only):
+
+```bash
+cd infrastructure/terraform
+bash bootstrap-backend.sh
+```
+
+### Key Module Variables
+
+| Variable | Description |
+|---|---|
+| `project_name` | Name prefix for all resources, e.g. `dispatcher-v2` |
+| `environment` | `dev` or `prod` |
+| `container_image` | ECR image URI used for the ECS service (Fargate mode, if enabled) |
+| `lambda_image_uri` | ECR image URI for all Lambda functions (defaults to `container_image`) |
+| `github_app_id` | GitHub App ID passed to Lambda as environment variable |
+| `create_managed_secrets` | If `true`, creates Secrets Manager secrets for webhook secret and private key |
+| `github_webhook_secret_arn` | ARN of an externally managed Secrets Manager secret for the webhook secret |
+| `github_app_private_key_arn` | ARN of an externally managed Secrets Manager secret for the private key |
+
+### Terraform Validate
+
+```bash
+terraform -chdir=infrastructure/terraform/environments/dev init -backend=false
+terraform -chdir=infrastructure/terraform/environments/dev validate
+
+terraform -chdir=infrastructure/terraform/environments/prod init -backend=false
+terraform -chdir=infrastructure/terraform/environments/prod validate
+```
+
+---
+
+## Testing
+
+Tests use [Vitest](https://vitest.dev/) and are colocated in `test/`.
+
+```bash
+npm test              # run all tests once
+npm run test:watch    # watch mode
+```
+
+Test coverage includes:
+
+| Test file | What it covers |
+|---|---|
+| `dispatching-schema.test.ts` | `dispatching.yml` YAML parsing and Zod schema validation |
+| `trigger-matcher.test.ts` | Outbound rule matching logic |
+| `authorization-service.test.ts` | Bilateral source/target authorization |
+| `dispatch-service.test.ts` | `workflow_dispatch` API call with retry logic |
+| `webhook.test.ts` | Webhook signature verification and event routing |
+| `content.test.ts` | `dispatching.yml` fetching from GitHub repository contents |
+| `issue-service.test.ts` | GitHub issue creation on dispatch failure |
+| `health.test.ts` | Health check computation from projection data |
+
+---
+
+## Repository Structure
+
+```
+dispatcher_v2/
+├── src/
+│   ├── config/
+│   │   └── env.ts                     # Zod-validated environment schema
+│   ├── domain/
+│   │   ├── dispatching-schema/
+│   │   │   └── schema.ts              # dispatching.yml Zod schema + parser
+│   │   └── trigger-matcher/
+│   │       └── match.ts               # Outbound rule matching
+│   ├── github/
+│   │   ├── content.ts                 # Fetch dispatching.yml from GitHub API
+│   │   ├── types.ts                   # WorkflowRunPayload and event context types
+│   │   └── webhook-handler.ts         # Fastify plugin: webhook verification + routing
+│   ├── services/
+│   │   ├── authorization-service.ts   # Bilateral inbound/outbound permission check
+│   │   ├── dispatch-event-store.ts    # In-memory event store (local mode)
+│   │   ├── dispatch-service.ts        # workflow_dispatch API call with retry
+│   │   ├── issue-service.ts           # GitHub issue creation
+│   │   └── workflow-run-handler.ts    # Orchestrates full dispatch flow (local mode)
+│   ├── async/
+│   │   ├── clients.ts                 # AWS SDK client factories (SQS, EventBridge, DynamoDB)
+│   │   ├── cloudevents.ts             # CloudEvent type definitions
+│   │   ├── contracts.ts               # SQS message types and DispatchFacts constants
+│   │   └── event-store.ts             # DynamoDB read/write: events table, projections, health
+│   ├── lambda/
+│   │   ├── ingress-handler.ts         # Lambda: validate webhook, enqueue to SQS
+│   │   ├── planner-handler.ts         # Lambda: resolve + authorise targets, enqueue work
+│   │   ├── dispatcher-handler.ts      # Lambda: call GitHub workflow_dispatch API
+│   │   ├── facts-processor-handler.ts # Lambda: persist EventBridge facts to DynamoDB
+│   │   ├── admin-observability-handler.ts  # Lambda: dashboard HTML + admin JSON APIs
+│   │   ├── github-app.ts              # GitHub App initialisation for Lambda context
+│   │   └── runtime-secrets.ts         # Fetch secrets from Secrets Manager at cold start
+│   ├── logger.ts
+│   ├── server.ts                      # Fastify server builder (local mode)
+│   └── index.ts                       # Entry point for local Fastify mode
+├── test/                              # Vitest test files
+├── infrastructure/
+│   └── terraform/
+│       ├── modules/
+│       │   └── dispatcher_service/    # Reusable Terraform module (all AWS resources)
+│       └── environments/
+│           ├── dev/                   # Dev environment config + backend
+│           └── prod/                  # Prod environment config + backend
+├── scripts/
+│   └── apply-dev-infra.sh             # Local dev build + push + deploy script
+├── docs/
+│   ├── aws-secrets-bootstrap.md       # Guide for bootstrapping Secrets Manager values
+│   └── deployment-secrets.md          # GitHub secrets/variables setup reference
+├── Dockerfile                         # Multi-stage build; Lambda runtime base image
+├── .env.example                       # Template for local .env
+└── PLAN.md                            # Original design plan and scope document
+```

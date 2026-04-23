@@ -1,7 +1,5 @@
-FROM node:22-alpine AS base
+FROM node:22-alpine AS deps
 WORKDIR /app
-
-FROM base AS deps
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -11,11 +9,18 @@ COPY tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
 
-FROM node:22-alpine AS runtime
+FROM node:22-alpine AS prod-deps
 WORKDIR /app
-ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
+
+FROM public.ecr.aws/lambda/nodejs:22 AS runtime
+WORKDIR /var/task
+ENV NODE_ENV=production
+COPY package.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-EXPOSE 3000
-CMD ["node", "dist/index.js"]
+
+# Terraform sets per-function commands via image_config.command.
+# This default is only used if no override is supplied.
+CMD ["dist/lambda/ingress-handler.handler"]

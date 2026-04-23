@@ -131,7 +131,7 @@ jobs:
             -backend-config="key=dispatcher-v2/dev/terraform.tfstate" \
             -backend-config="region=${{ vars.TF_STATE_REGION }}" \
             -backend-config="encrypt=true" \
-            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+            -backend-config="use_lockfile=true"
 
       - name: Terraform Plan (Dev)
         working-directory: infrastructure/terraform/environments/dev
@@ -211,7 +211,7 @@ jobs:
             -backend-config="key=dispatcher-v2/prod/terraform.tfstate" \
             -backend-config="region=${{ vars.TF_STATE_REGION }}" \
             -backend-config="encrypt=true" \
-            -backend-config="dynamodb_table=${{ vars.TF_STATE_LOCK_TABLE }}"
+            -backend-config="use_lockfile=true"
 
       - name: Terraform Plan (Prod)
         working-directory: infrastructure/terraform/environments/prod
