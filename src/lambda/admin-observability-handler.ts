@@ -1,4 +1,5 @@
 import pino from "pino";
+import { isIP } from "node:net";
 
 import { env } from "../config/env.js";
 import {
@@ -16,6 +17,12 @@ import {
 } from "../async/event-store.js";
 
 const log = pino({ level: env.LOG_LEVEL });
+const adminIpAllowlist = new Set(
+  env.ADMIN_IP_ALLOWLIST
+    .split(",")
+    .map((ip) => ip.trim())
+    .filter((entry) => isValidIpAddress(entry)),
+);
 
 type ApiGatewayV2Event = {
   rawPath: string;
@@ -661,7 +668,7 @@ loadAll();
 
 export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Response> {
   const sourceIp = event.requestContext?.http?.sourceIp;
-  if (!isAdminRequestAllowed(sourceIp, env.ADMIN_IP_ALLOWLIST)) {
+  if (!isAdminRequestAllowed(sourceIp, adminIpAllowlist)) {
     return jsonResponse(403, { error: "Forbidden" });
   }
 
@@ -740,16 +747,16 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
   return jsonResponse(404, { error: "Not Found" });
 }
 
-function isAdminRequestAllowed(sourceIp: string | undefined, adminIpAllowlist: string): boolean {
-  const allowlist = adminIpAllowlist
-    .split(",")
-    .map((ip) => ip.trim())
-    .filter(Boolean);
-  if (allowlist.length === 0) {
+export function isAdminRequestAllowed(sourceIp: string | undefined, allowlist: Set<string>): boolean {
+  if (allowlist.size === 0) {
     return true;
   }
   if (!sourceIp) {
     return false;
   }
-  return allowlist.includes(sourceIp);
+  return allowlist.has(sourceIp);
+}
+
+function isValidIpAddress(value: string): boolean {
+  return isIP(value) !== 0;
 }

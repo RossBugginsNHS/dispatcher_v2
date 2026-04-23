@@ -1,6 +1,9 @@
 import { normalizeWorkflowName, type ResolvedDispatchTarget } from "../domain/trigger-matcher/match.js";
 import type { WorkflowRunPayload } from "../github/types.js";
 
+const allowlistCache = new Map<string, Set<string>>();
+const ALLOWLIST_CACHE_MAX_SIZE = 16;
+
 export type GuardrailSettings = {
   enforceSourceDefaultBranch: boolean;
   maxTargetsPerRun: number;
@@ -84,7 +87,7 @@ export function filterTargetsWithGuardrails(
       continue;
     }
 
-    if (normalizedTargetRepo === normalizedSourceRepo && normalizedTargetWorkflow === normalizedSourceWorkflow) {
+    if (isSelfDispatch(normalizedSourceRepo, normalizedSourceWorkflow, normalizedTargetRepo, normalizedTargetWorkflow)) {
       denied.push({ target, reason: "self_dispatch_blocked" });
       continue;
     }
@@ -109,11 +112,31 @@ function isAllowed(value: string, rawAllowlist: string): boolean {
   return allowlist.has(value.toLowerCase());
 }
 
+function isSelfDispatch(
+  sourceRepo: string,
+  sourceWorkflow: string,
+  targetRepo: string,
+  targetWorkflow: string,
+): boolean {
+  return sourceRepo === targetRepo && sourceWorkflow === targetWorkflow;
+}
+
 function parseAllowlist(rawAllowlist: string): Set<string> {
-  return new Set(
+  const normalized = rawAllowlist.trim();
+  const cached = allowlistCache.get(normalized);
+  if (cached) {
+    return cached;
+  }
+
+  const parsed = new Set(
     rawAllowlist
       .split(",")
       .map((item) => item.trim().toLowerCase())
       .filter(Boolean),
   );
+  if (allowlistCache.size >= ALLOWLIST_CACHE_MAX_SIZE) {
+    allowlistCache.clear();
+  }
+  allowlistCache.set(normalized, parsed);
+  return parsed;
 }

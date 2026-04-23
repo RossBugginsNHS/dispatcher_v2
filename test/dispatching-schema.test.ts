@@ -78,6 +78,6 @@ describe("DispatchingConfigSchema", () => {
 outbound: []
 outbound: []
 `;
-    expect(() => parseDispatchingConfig(yaml)).toThrow();
+    expect(() => parseDispatchingConfig(yaml)).toThrow(/unique/i);
   });
 });

@@ -65,6 +65,8 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
     return { statusCode: 400, body: JSON.stringify({ error: "Missing required GitHub webhook headers or payload" }) };
   }
 
+  // Note: this in-memory cache is per-runtime-instance only; use a shared store
+  // (for example DynamoDB TTL) for stronger replay guarantees across instances.
   if (isReplayDelivery(deliveryId)) {
     return { statusCode: 409, body: JSON.stringify({ error: "Duplicate delivery" }) };
   }

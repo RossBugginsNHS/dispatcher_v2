@@ -268,6 +268,7 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
 ### Security Guard Rails (PoC-safe defaults)
 
 - Webhook processing rejects duplicate `x-github-delivery` values seen within a short replay window.
+  - Current replay cache is in-memory per runtime instance; for stronger multi-instance guarantees, add a shared store (for example DynamoDB TTL).
 - Dispatch planner enforces guard rails before authorization:
   - default-branch-only source runs (configurable),
   - optional source/target/workflow allowlists,
@@ -275,6 +276,7 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
   - duplicate target suppression,
   - maximum targets per run.
 - Admin observability endpoints are intentionally unauthenticated in this PoC, but can be restricted with `ADMIN_IP_ALLOWLIST`.
+  - IP allowlisting is a lightweight guard rail only; pair with API Gateway resource policies and/or AWS WAF for production-grade edge enforcement.
 
 ---
 
