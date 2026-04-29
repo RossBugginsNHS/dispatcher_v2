@@ -1,6 +1,6 @@
 # Terraform Deployment (AWS)
 
-This folder contains Terraform for deploying dispatcher_v2 as a GitHub App backend on AWS.
+This folder contains Terraform for deploying GitHub Workflow Dispatcher as a GitHub App backend on AWS.
 
 ## Layout
 

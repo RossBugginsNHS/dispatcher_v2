@@ -1,6 +1,6 @@
-# dispatcher_v2
+# GitHub Workflow Dispatcher
 
-A GitHub App backend service for **cross-repository workflow dispatching**. When a workflow completes in a source repository, dispatcher_v2 reads `dispatching.yml` configuration files, authorises eligible targets, and triggers matching workflows in those target repositories via the GitHub Actions workflow dispatch API.
+A GitHub App backend service for **cross-repository workflow dispatching**. When a workflow completes in a source repository, GitHub Workflow Dispatcher reads `dispatching.yml` configuration files, authorises eligible targets, and triggers matching workflows in those target repositories via the GitHub Actions workflow dispatch API.
 
 This is a rewrite of dispatcher v1 focused exclusively on dispatching behaviour. All repository vending, provisioning, and Terraform-execution-from-webhooks behaviour has been removed.
 
@@ -196,8 +196,8 @@ Health checks include: success rate, dispatch backlog depth, recent failures, da
 ### Setup
 
 ```bash
-git clone https://github.com/RossBugginsNHS/dispatcher_v2
-cd dispatcher_v2
+git clone https://github.com/RossBugginsNHS/github-workflow-dispatcher
+cd github-workflow-dispatcher
 npm install
 cp .env.example .env
 # Edit .env with your GitHub App credentials and any optional settings
@@ -271,6 +271,7 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
   - Current replay cache is in-memory per runtime instance; for stronger multi-instance guarantees, add a shared store (for example DynamoDB TTL).
 - Dispatch planner enforces guard rails before authorization:
   - default-branch-only source runs (configurable),
+  - fork-sourced run rejection (head repository differs from source repository),
   - optional source/target/workflow allowlists,
   - self-dispatch block (`source repo + workflow` to itself),
   - duplicate target suppression,
@@ -314,8 +315,8 @@ gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
 Create the `dev` and `prod` environments (add manual review protection to `prod`):
 
 ```bash
-gh api -X PUT repos/<owner>/dispatcher_v2/environments/dev
-gh api -X PUT repos/<owner>/dispatcher_v2/environments/prod
+gh api -X PUT repos/<owner>/github-workflow-dispatcher/environments/dev
+gh api -X PUT repos/<owner>/github-workflow-dispatcher/environments/prod
 ```
 
 ### Manual Dev Deploy
@@ -402,18 +403,21 @@ Test coverage includes:
 | `dispatching-schema.test.ts` | `dispatching.yml` YAML parsing and Zod schema validation |
 | `trigger-matcher.test.ts` | Outbound rule matching logic |
 | `authorization-service.test.ts` | Bilateral source/target authorization |
+| `dispatch-guardrails.test.ts` | Source workflow run evaluation and per-target guardrail filtering |
 | `dispatch-service.test.ts` | `workflow_dispatch` API call with retry logic |
 | `webhook.test.ts` | Webhook signature verification and event routing |
 | `content.test.ts` | `dispatching.yml` fetching from GitHub repository contents |
 | `issue-service.test.ts` | GitHub issue creation on dispatch failure |
 | `health.test.ts` | Health check computation from projection data |
+| `replay-protection.test.ts` | In-memory replay detection with TTL expiry |
+| `admin-observability-handler.test.ts` | `isAdminRequestAllowed` IP allowlist enforcement |
 
 ---
 
 ## Repository Structure
 
 ```
-dispatcher_v2/
+github-workflow-dispatcher/
 ├── src/
 │   ├── config/
 │   │   └── env.ts                     # Zod-validated environment schema
@@ -424,11 +428,13 @@ dispatcher_v2/
 │   │       └── match.ts               # Outbound rule matching
 │   ├── github/
 │   │   ├── content.ts                 # Fetch dispatching.yml from GitHub API
+│   │   ├── replay-protection.ts       # In-memory duplicate delivery-ID detection (10-min TTL)
 │   │   ├── types.ts                   # WorkflowRunPayload and event context types
 │   │   └── webhook-handler.ts         # Fastify plugin: webhook verification + routing
 │   ├── services/
 │   │   ├── authorization-service.ts   # Bilateral inbound/outbound permission check
 │   │   ├── dispatch-event-store.ts    # In-memory event store (local mode)
+│   │   ├── dispatch-guardrails.ts     # Source + target guardrail evaluation and filtering
 │   │   ├── dispatch-service.ts        # workflow_dispatch API call with retry
 │   │   ├── issue-service.ts           # GitHub issue creation
 │   │   └── workflow-run-handler.ts    # Orchestrates full dispatch flow (local mode)
