@@ -31,7 +31,7 @@ data "aws_caller_identity" "current" {}
 
 resource "aws_ecr_repository" "app" {
   name                 = "${local.name_prefix}-dispatcher"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true
@@ -80,6 +80,16 @@ resource "aws_dynamodb_table" "dispatch_events" {
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "pk"
   range_key    = "sk"
+
+  deletion_protection_enabled = true
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
 
   attribute {
     name = "pk"
@@ -134,6 +144,16 @@ resource "aws_dynamodb_table" "dispatch_projections" {
   hash_key     = "pk"
   range_key    = "sk"
 
+  deletion_protection_enabled = true
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
   attribute {
     name = "pk"
     type = "S"
@@ -148,12 +168,14 @@ resource "aws_dynamodb_table" "dispatch_projections" {
 }
 
 resource "aws_sqs_queue" "dispatch_requests_dlq" {
-  name = "${local.name_prefix}-dispatch-requests-dlq"
-  tags = local.base_tags
+  name                    = "${local.name_prefix}-dispatch-requests-dlq"
+  sqs_managed_sse_enabled = true
+  tags                    = local.base_tags
 }
 
 resource "aws_sqs_queue" "dispatch_requests" {
-  name = "${local.name_prefix}-dispatch-requests"
+  name                    = "${local.name_prefix}-dispatch-requests"
+  sqs_managed_sse_enabled = true
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dispatch_requests_dlq.arn
@@ -164,12 +186,14 @@ resource "aws_sqs_queue" "dispatch_requests" {
 }
 
 resource "aws_sqs_queue" "dispatch_targets_dlq" {
-  name = "${local.name_prefix}-dispatch-targets-dlq"
-  tags = local.base_tags
+  name                    = "${local.name_prefix}-dispatch-targets-dlq"
+  sqs_managed_sse_enabled = true
+  tags                    = local.base_tags
 }
 
 resource "aws_sqs_queue" "dispatch_targets" {
-  name = "${local.name_prefix}-dispatch-targets"
+  name                    = "${local.name_prefix}-dispatch-targets"
+  sqs_managed_sse_enabled = true
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dispatch_targets_dlq.arn
@@ -209,7 +233,10 @@ data "aws_iam_policy_document" "lambda_runtime" {
       "logs:CreateLogStream",
       "logs:PutLogEvents",
     ]
-    resources = ["arn:aws:logs:*:*:*"]
+    resources = [
+      "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-*",
+      "arn:aws:logs:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:log-group:/aws/lambda/${local.name_prefix}-*:*",
+    ]
   }
 
   statement {
@@ -278,6 +305,44 @@ resource "aws_iam_role_policy_attachment" "lambda_runtime" {
   policy_arn = aws_iam_policy.lambda_runtime.arn
 }
 
+# --- CloudWatch Log Groups with bounded retention ---
+
+resource "aws_cloudwatch_log_group" "ingress" {
+  name              = "/aws/lambda/${local.name_prefix}-ingress"
+  retention_in_days = var.log_retention_days
+  tags              = local.base_tags
+}
+
+resource "aws_cloudwatch_log_group" "planner" {
+  name              = "/aws/lambda/${local.name_prefix}-planner"
+  retention_in_days = var.log_retention_days
+  tags              = local.base_tags
+}
+
+resource "aws_cloudwatch_log_group" "dispatcher" {
+  name              = "/aws/lambda/${local.name_prefix}-dispatcher"
+  retention_in_days = var.log_retention_days
+  tags              = local.base_tags
+}
+
+resource "aws_cloudwatch_log_group" "admin" {
+  name              = "/aws/lambda/${local.name_prefix}-admin"
+  retention_in_days = var.log_retention_days
+  tags              = local.base_tags
+}
+
+resource "aws_cloudwatch_log_group" "facts_processor" {
+  name              = "/aws/lambda/${local.name_prefix}-facts-processor"
+  retention_in_days = var.log_retention_days
+  tags              = local.base_tags
+}
+
+resource "aws_cloudwatch_log_group" "api_gateway_access" {
+  name              = "/aws/apigateway/${local.name_prefix}-access"
+  retention_in_days = var.log_retention_days
+  tags              = local.base_tags
+}
+
 resource "aws_lambda_function" "ingress" {
   function_name = "${local.name_prefix}-ingress"
   role          = aws_iam_role.lambda.arn
@@ -299,7 +364,8 @@ resource "aws_lambda_function" "ingress" {
     }
   }
 
-  tags = local.base_tags
+  depends_on = [aws_cloudwatch_log_group.ingress]
+  tags       = local.base_tags
 }
 
 resource "aws_lambda_function" "planner" {
@@ -327,7 +393,8 @@ resource "aws_lambda_function" "planner" {
     }
   }
 
-  tags = local.base_tags
+  depends_on = [aws_cloudwatch_log_group.planner]
+  tags       = local.base_tags
 }
 
 resource "aws_lambda_function" "dispatcher" {
@@ -353,7 +420,8 @@ resource "aws_lambda_function" "dispatcher" {
     }
   }
 
-  tags = local.base_tags
+  depends_on = [aws_cloudwatch_log_group.dispatcher]
+  tags       = local.base_tags
 }
 
 resource "aws_lambda_function" "admin" {
@@ -377,7 +445,8 @@ resource "aws_lambda_function" "admin" {
     }
   }
 
-  tags = local.base_tags
+  depends_on = [aws_cloudwatch_log_group.admin]
+  tags       = local.base_tags
 }
 
 resource "aws_lambda_function" "facts_processor" {
@@ -401,7 +470,8 @@ resource "aws_lambda_function" "facts_processor" {
     }
   }
 
-  tags = local.base_tags
+  depends_on = [aws_cloudwatch_log_group.facts_processor]
+  tags       = local.base_tags
 }
 
 resource "aws_lambda_event_source_mapping" "planner" {
@@ -453,6 +523,21 @@ resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.webhook.id
   name        = "$default"
   auto_deploy = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_gateway_access.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      ip             = "$context.identity.sourceIp"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      routeKey       = "$context.routeKey"
+      status         = "$context.status"
+      protocol       = "$context.protocol"
+      responseLength = "$context.responseLength"
+      integrationError = "$context.integrationErrorMessage"
+    })
+  }
 
   tags = local.base_tags
 }

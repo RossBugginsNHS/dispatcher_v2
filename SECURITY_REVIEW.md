@@ -141,6 +141,13 @@
 - CI workflow least-privilege improvements.
 - Dependabot configuration added.
 - README updated with security guardrails and new env vars.
+- **GitHub Actions pinned to commit SHAs** (supply-chain hardening).
+- **ECR image tag mutability set to IMMUTABLE** (container image integrity).
+- **SQS server-side encryption enabled** (data-at-rest protection).
+- **DynamoDB point-in-time recovery, encryption, and deletion protection enabled** (data protection).
+- **CloudWatch Logs IAM scoped to specific log group patterns** (least privilege).
+- **Explicit CloudWatch Log Groups with 90-day retention** (cost control + audit).
+- **API Gateway access logging enabled** (HTTP-level audit trail).
 
 ## Needs decision
 
@@ -151,7 +158,70 @@
 - **AWS SDK advisory response:**  
   decide whether to pin/downgrade to advisory-suggested versions versus waiting for upstream fixed line; document accepted risk window.
 - **Workflow action SHA pinning policy:**  
-  migrate all actions from tags to commit SHAs under an update process.
+  ~~migrate all actions from tags to commit SHAs under an update process.~~  
+  **Resolved:** all actions in CI/CD workflow now pinned to commit SHAs with tag comments.
+
+---
+
+### 8) GitHub Actions pinned to mutable tags (supply-chain risk)
+- **Severity:** High  
+- **Category:** CI/CD / Supply chain  
+- **Evidence:** `.github/workflows/ci-cd.yml` previously used `@v4` / `@v3` / `@v2` tags.  
+- **Exploit scenario:** tag hijacking or tag force-push by a compromised upstream action repo could inject malicious code into CI/CD pipelines.  
+- **Impact:** arbitrary code execution in the CI environment with access to OIDC credentials and deployment infrastructure.  
+- **Fix:** all actions pinned to full 40-character commit SHAs with version comments for maintainability.  
+- **Verification:** inspect `.github/workflows/ci-cd.yml` — all `uses:` references contain commit SHAs.
+- **Status:** **Fix applied**
+
+### 9) ECR image tag mutability allows tag overwriting
+- **Severity:** High  
+- **Category:** Infrastructure / Container supply chain  
+- **Evidence:** `infrastructure/terraform/modules/dispatcher_service/main.tf` `aws_ecr_repository.app` previously set `image_tag_mutability = "MUTABLE"`.  
+- **Exploit scenario:** attacker with ECR push access overwrites an existing image tag with a compromised image.  
+- **Impact:** Lambda functions load tampered container images on next cold start.  
+- **Fix:** set `image_tag_mutability = "IMMUTABLE"` to prevent tag overwriting.  
+- **Verification:** inspect Terraform plan for `image_tag_mutability = "IMMUTABLE"`.
+- **Status:** **Fix applied**
+
+### 10) SQS queues lack server-side encryption
+- **Severity:** Medium  
+- **Category:** Infrastructure / Data at rest  
+- **Evidence:** `aws_sqs_queue` resources for dispatch-requests, dispatch-targets, and their DLQs had no encryption configured.  
+- **Exploit scenario:** if queue data is accessed via a compromised IAM credential, message contents (workflow payloads) are readable in plaintext.  
+- **Impact:** information disclosure of dispatch payloads and metadata.  
+- **Fix:** enabled `sqs_managed_sse_enabled = true` on all four queues.  
+- **Verification:** inspect Terraform plan for SSE configuration on SQS resources.
+- **Status:** **Fix applied**
+
+### 11) DynamoDB tables lack point-in-time recovery and deletion protection
+- **Severity:** Medium  
+- **Category:** Infrastructure / Data protection  
+- **Evidence:** `aws_dynamodb_table` resources for dispatch-events and dispatch-projections had no PITR or deletion protection.  
+- **Exploit scenario:** accidental `terraform destroy` or `DeleteTable` API call permanently deletes audit data.  
+- **Impact:** loss of dispatch event history and audit trail.  
+- **Fix:** enabled `point_in_time_recovery`, `server_side_encryption`, and `deletion_protection_enabled` on both tables.  
+- **Verification:** inspect Terraform plan for PITR, SSE, and deletion protection settings.
+- **Status:** **Fix applied**
+
+### 12) CloudWatch Logs IAM policy overly broad
+- **Severity:** Medium  
+- **Category:** Infrastructure / IAM  
+- **Evidence:** Lambda IAM policy allowed `logs:*` on `arn:aws:logs:*:*:*`.  
+- **Exploit scenario:** compromised Lambda function could write to or create arbitrary log groups across the entire account.  
+- **Impact:** log pollution, cost escalation, and potential log-based attack obfuscation.  
+- **Fix:** scoped logs IAM to `arn:aws:logs:{region}:{account}:log-group:/aws/lambda/{prefix}-*` pattern.  
+- **Verification:** inspect Terraform plan for narrowed CloudWatch Logs resource ARNs.
+- **Status:** **Fix applied**
+
+### 13) No CloudWatch Log Groups with retention or API Gateway access logging
+- **Severity:** Medium  
+- **Category:** Infrastructure / Audit  
+- **Evidence:** Lambda functions auto-created log groups with no retention limit; API Gateway had no access logging configured.  
+- **Exploit scenario:** unbounded log storage costs; no HTTP-level audit trail for investigating suspicious requests.  
+- **Impact:** cost escalation and reduced forensic capability.  
+- **Fix:** added explicit CloudWatch Log Groups with configurable retention (default 90 days) for all five Lambda functions and API Gateway access logs. Enabled API Gateway access logging with structured JSON format.  
+- **Verification:** inspect Terraform plan for log group resources and API Gateway stage `access_log_settings`.
+- **Status:** **Fix applied**
 
 ---
 
@@ -172,5 +242,5 @@
 - Add explicit source/target relationship registry (mutual-consent handshake).
 - Add workflow allowlist by immutable workflow IDs (not file-name only).
 - Add dispatch rate limiting per source repo/workflow/time window.
-- Pin all GitHub Actions to immutable SHAs.
 - Add secret scanning policy docs + gitleaks workflow/config if org policy requires repository-level enforcement.
+- Add admin portal authentication beyond IP allowlist (e.g., Cognito, API key, or IAM auth on API Gateway).
