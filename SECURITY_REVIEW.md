@@ -267,6 +267,7 @@
 3. `npm run lint` — passes cleanly (unnecessary type assertions in `src/async/event-store.ts` and `src/lambda/facts-processor-handler.ts` have been resolved)
 4. Validate CI workflow conditions and job permissions in `.github/workflows/ci-cd.yml`
 5. Optional manual check: set `ADMIN_IP_ALLOWLIST=127.0.0.1` in Lambda-equivalent event tests and confirm access control behavior
+6. `grep '@sha256:' Dockerfile` — all `FROM` lines must contain a digest (Finding 15 verification)
 
 ---
 
