@@ -240,7 +240,7 @@
 
 1. `npm run build`
 2. `npx vitest run test/dispatching-schema.test.ts test/dispatch-guardrails.test.ts test/webhook.test.ts`
-3. `npm run lint` *(currently fails due pre-existing unrelated lint errors in `src/async/event-store.ts` and `src/lambda/facts-processor-handler.ts`)*
+3. `npm run lint` — passes cleanly (unnecessary type assertions in `src/async/event-store.ts` and `src/lambda/facts-processor-handler.ts` have been resolved)
 4. Validate CI workflow conditions and job permissions in `.github/workflows/ci-cd.yml`
 5. Optional manual check: set `ADMIN_IP_ALLOWLIST=127.0.0.1` in Lambda-equivalent event tests and confirm access control behavior
 
