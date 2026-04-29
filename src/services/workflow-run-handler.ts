@@ -6,6 +6,11 @@ import { fetchDispatchingConfig, type RepoContentsClient } from "../github/conte
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "../github/types.js";
 import { authorizeDispatchTargets } from "./authorization-service.js";
 import { executeWorkflowDispatches, type DispatchActionsClient } from "./dispatch-service.js";
+import {
+  evaluateSourceWorkflowRun,
+  filterTargetsWithGuardrails,
+  type GuardrailSettings,
+} from "./dispatch-guardrails.js";
 import type { DispatchEventStore } from "./dispatch-event-store.js";
 import { createDispatchResultIssue, type IssueClient } from "./issue-service.js";
 
@@ -15,6 +20,7 @@ type WorkflowRunHandlerOptions = {
   dispatchMaxRetries: number;
   dispatchRetryBaseDelayMs: number;
   eventStore?: DispatchEventStore;
+  guardrails: GuardrailSettings;
 };
 
 type WorkflowRunOctokitClient = RepoContentsClient & DispatchActionsClient & IssueClient;
@@ -44,6 +50,15 @@ export function createWorkflowRunHandler(
       { owner, repo, workflowPath: workflow_run.path, conclusion: workflow_run.conclusion },
       "Handling workflow_run.completed",
     );
+
+    const sourceAssessment = evaluateSourceWorkflowRun(payload, options.guardrails);
+    if (!sourceAssessment.allowed) {
+      runLog.warn(
+        { owner, repo, sourceWorkflow, reason: sourceAssessment.reason },
+        "Skipped workflow run due to source guardrail policy",
+      );
+      return;
+    }
 
     if (!installation?.id) {
       runLog.warn({ owner, repo }, "No installation ID in payload; skipping dispatching config fetch");
@@ -77,8 +92,14 @@ export function createWorkflowRunHandler(
     );
 
     const candidateTargets = matchOutboundTargets(result.config, owner, workflow_run.path);
+    const targetGuardrails = filterTargetsWithGuardrails(
+      candidateTargets,
+      sourceRepoFullName,
+      sourceWorkflow,
+      options.guardrails,
+    );
 
-    if (candidateTargets.length === 0) {
+    if (targetGuardrails.allowed.length === 0) {
       runLog.info(
         { owner, repo, workflow: sourceWorkflow },
         "No outbound targets matched this workflow run",
@@ -87,12 +108,13 @@ export function createWorkflowRunHandler(
     }
 
     const authorization = await authorizeDispatchTargets(
-      candidateTargets,
+      targetGuardrails.allowed,
       sourceRepoFullName,
       repo,
       sourceWorkflow,
       async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
     );
+    const deniedTargets = [...targetGuardrails.denied, ...authorization.denied];
 
     runLog.info(
       {
@@ -101,7 +123,7 @@ export function createWorkflowRunHandler(
         sourceWorkflow,
         candidateTargets: candidateTargets.length,
         allowedTargets: authorization.allowed,
-        deniedTargets: authorization.denied,
+        deniedTargets: deniedTargets,
       },
       "Dispatch target authorization evaluated",
     );
@@ -133,7 +155,7 @@ export function createWorkflowRunHandler(
         error: d.status === "failed" ? String(d.error) : undefined,
       });
     }
-    for (const denied of authorization.denied) {
+    for (const denied of deniedTargets) {
       options.eventStore?.record({
         timestamp,
         correlationId: context.deliveryId,
@@ -157,7 +179,7 @@ export function createWorkflowRunHandler(
             sourceWorkflowPath: workflow_run.path,
             sourceRunId: workflow_run.id,
             sourceRunUrl: workflow_run.html_url,
-            denied: authorization.denied,
+            denied: deniedTargets,
             dispatches,
           },
           runLog,
@@ -175,7 +197,7 @@ export function createWorkflowRunHandler(
         dispatchRef,
         dispatchSuccessCount: dispatches.filter((item) => item.status === "success").length,
         dispatchFailureCount: dispatches.filter((item) => item.status === "failed").length,
-        deniedCount: authorization.denied.length,
+        deniedCount: deniedTargets.length,
       },
       "Dispatch side effects completed",
     );

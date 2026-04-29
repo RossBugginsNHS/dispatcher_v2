@@ -63,12 +63,21 @@ inbound:
 });
 
 describe("DispatchingConfigSchema", () => {
-  it("strips unknown keys from the parsed output", () => {
-    const result = DispatchingConfigSchema.safeParse({
-      outbound: [],
-      inbound: [],
-      unknown_field: "should be ignored",
-    });
-    expect(result.success).toBe(true);
+  it("rejects unknown keys", () => {
+    expect(() =>
+      DispatchingConfigSchema.parse({
+        outbound: [],
+        inbound: [],
+        unknown_field: "should not be accepted",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects duplicate YAML keys", () => {
+    const yaml = `
+outbound: []
+outbound: []
+`;
+    expect(() => parseDispatchingConfig(yaml)).toThrow(/unique/i);
   });
 });

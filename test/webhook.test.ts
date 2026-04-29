@@ -66,4 +66,41 @@ describe("POST /webhooks/github", () => {
 
     await app.close();
   });
+
+  it("rejects replayed deliveries", async () => {
+    const app = await buildServer({ githubWebhookSecret: "test-secret" });
+
+    const payload = JSON.stringify({
+      action: "completed",
+      workflow_run: { id: 123 },
+      repository: { full_name: "owner/repo" },
+    });
+
+    const webhooks = new Webhooks({ secret: "test-secret" });
+    const signature = await webhooks.sign(payload);
+    const headers = {
+      "content-type": "application/json",
+      "x-github-delivery": "delivery-replay",
+      "x-github-event": "workflow_run",
+      "x-hub-signature-256": signature,
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers,
+    });
+    expect(first.statusCode).toBe(202);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/webhooks/github",
+      payload,
+      headers,
+    });
+    expect(second.statusCode).toBe(409);
+
+    await app.close();
+  });
 });
