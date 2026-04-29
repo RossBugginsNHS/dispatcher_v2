@@ -46,7 +46,7 @@ export async function executeWorkflowDispatches(
             owner: target.owner,
             repo: target.repo,
             workflow_id: target.workflow,
-            ref,
+            ref: target.ref ?? ref,
           });
           break;
         } catch (error) {

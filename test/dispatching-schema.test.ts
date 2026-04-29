@@ -30,6 +30,40 @@ inbound:
     expect(config.inbound[0].targets[0]).toEqual({ workflow: "cd.yml" });
   });
 
+  it("parses an outbound target with an optional ref override", () => {
+    const yaml = `
+outbound:
+  - source:
+      workflow: ci.yml
+    targets:
+      - repository: my-target-repo
+        workflow: cd.yml
+        ref: release
+`;
+    const config = parseDispatchingConfig(yaml);
+
+    expect(config.outbound[0].targets[0]).toEqual({
+      repository: "my-target-repo",
+      workflow: "cd.yml",
+      ref: "release",
+    });
+  });
+
+  it("omits ref from outbound target when not specified", () => {
+    const yaml = `
+outbound:
+  - source:
+      workflow: ci.yml
+    targets:
+      - repository: my-target-repo
+        workflow: cd.yml
+`;
+    const config = parseDispatchingConfig(yaml);
+
+    expect(config.outbound[0].targets[0]).toEqual({ repository: "my-target-repo", workflow: "cd.yml" });
+    expect(config.outbound[0].targets[0].ref).toBeUndefined();
+  });
+
   it("defaults outbound and inbound to empty arrays when omitted", () => {
     const config = parseDispatchingConfig("{}");
     expect(config.outbound).toEqual([]);

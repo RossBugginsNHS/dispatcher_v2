@@ -56,6 +56,7 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
         sourceRepoAllowlist: env.SOURCE_REPO_ALLOWLIST,
         targetRepoAllowlist: env.TARGET_REPO_ALLOWLIST,
         sourceWorkflowAllowlist: env.SOURCE_WORKFLOW_ALLOWLIST,
+        allowedSourceConclusions: env.ALLOWED_SOURCE_CONCLUSIONS,
       });
       if (!sourceAssessment.allowed) {
         log.warn(
@@ -95,6 +96,7 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
         sourceRepoAllowlist: env.SOURCE_REPO_ALLOWLIST,
         targetRepoAllowlist: env.TARGET_REPO_ALLOWLIST,
         sourceWorkflowAllowlist: env.SOURCE_WORKFLOW_ALLOWLIST,
+        allowedSourceConclusions: env.ALLOWED_SOURCE_CONCLUSIONS,
       });
       const authorization = await authorizeDispatchTargets(
         targetGuardrails.allowed,
