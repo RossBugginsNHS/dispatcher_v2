@@ -308,6 +308,8 @@ The GitHub Actions workflow at [.github/workflows/ci-cd.yml](.github/workflows/c
 | `AWS_REGION` | Variable | e.g. `eu-west-2` |
 | `ECR_REPOSITORY_DEV` | Variable | ECR repo name for dev, e.g. `dispatcher-v2-dev-dispatcher` |
 | `ECR_REPOSITORY_PROD` | Variable | ECR repo name for prod |
+| `TF_STATE_BUCKET` | Variable | Terraform remote state S3 bucket name |
+| `TF_STATE_REGION` | Variable | Region of the Terraform state bucket |
 
 Set secrets and variables with the GitHub CLI:
 
@@ -316,6 +318,8 @@ gh secret set AWS_ROLE_TO_ASSUME --body "arn:aws:iam::<account>:role/<role>"
 gh variable set AWS_REGION --body "eu-west-2"
 gh variable set ECR_REPOSITORY_DEV --body "dispatcher-v2-dev-dispatcher"
 gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
+gh variable set TF_STATE_BUCKET --body "<your-tf-state-bucket>"
+gh variable set TF_STATE_REGION --body "eu-west-2"
 ```
 
 Create the `dev` and `prod` environments (add manual review protection to `prod`):
@@ -343,7 +347,7 @@ The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-appl
 ./scripts/apply-dev-infra.sh --skip-image-build --auto-approve
 ```
 
-The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `TF_VAR_container_image`, `TF_VAR_github_app_id`, and `LAMBDA_IMAGE_URI` from the environment or `.env`. Set `AWS_PROFILE` in `.env` to avoid passing it manually.
+The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `GITHUB_APP_ID`, `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_VAR_github_app_id`, `TF_VAR_container_image`, `TF_VAR_lambda_image_uri`, and `LAMBDA_IMAGE_URI` from the environment or `.env`. If `TF_VAR_github_app_id` is not set, it falls back to `GITHUB_APP_ID`. If `TF_VAR_lambda_image_uri` is not set, it falls back to `LAMBDA_IMAGE_URI` (and then `TF_VAR_container_image`).
 
 ---
 
