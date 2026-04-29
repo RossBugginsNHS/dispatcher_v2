@@ -27,6 +27,8 @@ Set these in repository or environment variables:
 - AWS_REGION
 - ECR_REPOSITORY_DEV
 - ECR_REPOSITORY_PROD
+- TF_STATE_BUCKET
+- TF_STATE_REGION
 
 Set with gh CLI:
 
@@ -34,6 +36,8 @@ Set with gh CLI:
 gh variable set AWS_REGION --body "eu-west-2"
 gh variable set ECR_REPOSITORY_DEV --body "dispatcher-v2-dev-dispatcher"
 gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
+gh variable set TF_STATE_BUCKET --body "<your-tf-state-bucket>"
+gh variable set TF_STATE_REGION --body "eu-west-2"
 ```
 
 Create environments with gh CLI:

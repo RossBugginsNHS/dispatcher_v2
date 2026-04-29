@@ -64,8 +64,9 @@ Optional runtime identity pattern (local shell):
 
 Optional helper script pattern (`scripts/apply-dev-infra.sh`):
 
-- The script reads `.env` values for `TF_VAR_github_app_id` and `TF_VAR_container_image`.
-- It also accepts `LAMBDA_IMAGE_URI=...` as an optional override; otherwise Lambdas use `TF_VAR_container_image`.
+- The script reads `.env` values for `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `GITHUB_APP_ID`, `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_VAR_github_app_id`, `TF_VAR_container_image`, `TF_VAR_lambda_image_uri`, and `LAMBDA_IMAGE_URI`.
+- `TF_VAR_github_app_id` falls back to `GITHUB_APP_ID` when omitted.
+- `TF_VAR_lambda_image_uri` falls back to `LAMBDA_IMAGE_URI`, then `TF_VAR_container_image`.
 
 4. Get webhook URL from output webhook_url and configure GitHub App webhook URL for:
 
