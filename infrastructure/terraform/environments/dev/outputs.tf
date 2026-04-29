@@ -17,3 +17,15 @@ output "github_webhook_secret_arn" {
 output "github_app_private_key_arn" {
   value = module.dispatcher_service.github_app_private_key_arn
 }
+
+output "dispatch_requests_queue_url" {
+  value = module.dispatcher_service.dispatch_requests_queue_url
+}
+
+output "dispatch_targets_queue_url" {
+  value = module.dispatcher_service.dispatch_targets_queue_url
+}
+
+output "dispatch_facts_event_bus_name" {
+  value = module.dispatcher_service.dispatch_facts_event_bus_name
+}

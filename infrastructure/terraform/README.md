@@ -10,16 +10,16 @@ This folder contains Terraform for deploying dispatcher_v2 as a GitHub App backe
 
 ## What this deploys
 
-- VPC with two public subnets
-- ECS Fargate service running the Node.js app
 - ECR repository for images
-- ALB with health checks on /health
-- IAM roles for ECS task/execution
-- CloudWatch log group
+- API Gateway HTTP API for webhook and admin routes
+- Lambda functions for ingress, planner, dispatcher, facts processing, and admin observability
+- SQS queues for request and target dispatch work
+- EventBridge bus for dispatch lifecycle facts
+- DynamoDB tables for event history and projections
+- IAM roles and policies for Lambda runtime access
 - Optional managed secrets in AWS Secrets Manager for:
   - GITHUB_WEBHOOK_SECRET
   - GITHUB_APP_PRIVATE_KEY
-- Optional HTTPS and DNS if you supply ACM/Route53 inputs
 
 ## Prerequisites
 
@@ -62,22 +62,26 @@ Optional runtime identity pattern (local shell):
   export AWS_REGION="eu-west-2"
   terraform plan
 
+Optional helper script pattern (`scripts/apply-dev-infra.sh`):
+
+- The script reads `.env` values for `TF_VAR_github_app_id` and `TF_VAR_container_image`.
+- It also accepts `LAMBDA_IMAGE_URI=...` as an optional override; otherwise Lambdas use `TF_VAR_container_image`.
+
 4. Get webhook URL from output webhook_url and configure GitHub App webhook URL for:
 
 - https://github.com/apps/org-repo-workflows-runner-alpha
 
 ## Remote State Bootstrap
 
-Use the bootstrap helper to create Terraform backend resources (S3 state + DynamoDB lock table):
+Use the bootstrap helper to create the Terraform backend S3 bucket:
 
   AWS_PROFILE=nhs-notify-admin ./bootstrap-backend.sh \
     --bucket dispatcher-v2-tf-state \
-    --lock-table dispatcher-v2-tf-locks \
     --region eu-west-2
 
 After running it:
 
-- Set GitHub variables `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_STATE_LOCK_TABLE`.
+- Set GitHub variables `TF_STATE_BUCKET`, `TF_STATE_REGION`.
 - Migrate existing local dev state with `terraform init -migrate-state -force-copy`.
 - Initialize prod backend with `terraform init -reconfigure`.
 
@@ -85,6 +89,5 @@ After running it:
 
 - Runtime code must never run Terraform.
 - Infrastructure provisioning stays in this folder only.
-- For production, configure a custom domain + ACM cert + Route53 zone.
 - CI/CD workflow is defined in .github/workflows/ci-cd.yml.
 - Required runtime secrets/variables are documented in docs/deployment-secrets.md.

@@ -8,6 +8,7 @@ export interface WorkflowRunPayload {
   repository: {
     name: string;
     owner: { login: string };
+    default_branch?: string;
   };
   workflow_run: {
     id?: number;
@@ -16,5 +17,8 @@ export interface WorkflowRunPayload {
     html_url?: string;
     head_branch?: string | null;
     conclusion: string | null;
+    head_repository?: {
+      full_name?: string;
+    };
   };
 }

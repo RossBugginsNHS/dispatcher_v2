@@ -20,30 +20,6 @@ variable "github_app_id" {
   description = "GitHub App ID"
 }
 
-variable "github_app_slug" {
-  type        = string
-  description = "GitHub App slug"
-  default     = "org-repo-workflows-runner-alpha"
-}
-
-variable "desired_count" {
-  type        = number
-  description = "ECS desired task count"
-  default     = 1
-}
-
-variable "cpu" {
-  type        = number
-  description = "Fargate CPU units"
-  default     = 256
-}
-
-variable "memory" {
-  type        = number
-  description = "Fargate memory"
-  default     = 512
-}
-
 variable "create_managed_secrets" {
   type        = bool
   description = "Create placeholder secrets if existing ARNs are not provided"
@@ -64,23 +40,9 @@ variable "github_app_private_key_arn" {
   nullable    = true
 }
 
-variable "custom_domain_name" {
+variable "lambda_image_uri" {
   type        = string
-  description = "Optional custom domain name"
-  default     = null
-  nullable    = true
-}
-
-variable "route53_zone_id" {
-  type        = string
-  description = "Optional hosted zone ID"
-  default     = null
-  nullable    = true
-}
-
-variable "acm_certificate_arn" {
-  type        = string
-  description = "Optional ACM certificate ARN"
+  description = "Optional override image URI for Lambda handlers. Defaults to container_image when null."
   default     = null
   nullable    = true
 }

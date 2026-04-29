@@ -174,18 +174,18 @@ Acceptance:
 Deliver:
 - Terraform project under `infrastructure/terraform`.
 - Environment folders for at least `dev` and `prod` using shared modules.
-- AWS hosting stack for a containerized webhook service (ECS Fargate + ALB recommended).
+- AWS hosting stack for a Lambda-based webhook service using container images from ECR.
 - Secure secret delivery for `GITHUB_WEBHOOK_SECRET` and `GITHUB_APP_PRIVATE_KEY`.
 - HTTPS endpoint and DNS target for GitHub webhook configuration.
 - CI deployment workflow for `terraform fmt`, `terraform validate`, `terraform plan`, and approved `terraform apply`.
 
 Suggested AWS resources:
 - ECR repository for service image.
-- ECS cluster/service/task definition.
-- Application Load Balancer + target group + listener.
-- ACM certificate + Route53 record.
-- IAM roles/policies for task execution and secret access.
-- CloudWatch log group and retention settings.
+- API Gateway HTTP API.
+- Lambda functions for ingress, planning, dispatch, admin, and facts processing.
+- SQS queues, EventBridge bus, and DynamoDB projection tables.
+- IAM roles/policies for Lambda runtime and secret access.
+- CloudWatch log groups and retention settings.
 
 Acceptance:
 - `terraform validate` passes in each environment.
@@ -234,7 +234,7 @@ Reusable guardrail text for every AI prompt:
 4. "Implement outbound/inbound authorization matching across source/target repos."
 5. "Implement dispatch execution and issue creation with partial-failure tolerance."
 6. "Add CI workflow for lint, typecheck, unit/integration tests, and build."
-7. "Generate AWS Terraform for deploying the service (ECR, ECS Fargate, ALB, ACM/Route53, IAM, secrets integration) with dev/prod environments."
+7. "Generate AWS Terraform for deploying the service (ECR, Lambda container images, API Gateway, SQS, EventBridge, DynamoDB, IAM, secrets integration) with dev/prod environments."
 8. "Add deployment pipeline for image publish plus terraform validate/plan/apply with approval gates."
 
 ## 10. Definition of Done
@@ -245,3 +245,18 @@ Reusable guardrail text for every AI prompt:
 - CI is green and deployment artifact (container) is ready.
 - Service is deployed on AWS through Terraform-managed infrastructure.
 - GitHub App `org-repo-workflows-runner-alpha` is configured to deliver webhooks successfully to the deployed endpoint.
+
+---
+
+## 11. Dashboard Data Policy (Mandatory)
+
+To keep the admin dashboard fast and reliable at scale:
+
+- Dashboard APIs must not perform runtime aggregations in the request path.
+- Aggregations must be precomputed at write-time (projection updates) or via scheduled rollups.
+- Dashboard endpoints must query only event-log indexes or projection keys.
+- Any endpoint that merges buckets, scans-and-aggregates, or computes grouped metrics on read is a defect.
+
+Immediate remediation requirement:
+
+- Replace any remaining runtime aggregation paths with projection-backed reads before release.

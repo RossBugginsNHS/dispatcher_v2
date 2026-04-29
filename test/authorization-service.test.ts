@@ -15,7 +15,7 @@ describe("authorizeDispatchTargets", () => {
       "source-owner/source-repo",
       "source-repo",
       ".github/workflows/ci.yml",
-      async () => ({
+      () => ({
         found: true,
         config: {
           outbound: [],
@@ -39,7 +39,7 @@ describe("authorizeDispatchTargets", () => {
       "source-owner/source-repo",
       "source-repo",
       "ci.yml",
-      async () => ({
+      () => ({
         found: true,
         config: {
           outbound: [],
@@ -63,7 +63,7 @@ describe("authorizeDispatchTargets", () => {
       "source-owner/source-repo",
       "source-repo",
       "ci.yml",
-      async () => ({ found: false, reason: "missing" }),
+      () => ({ found: false, reason: "missing" }),
     );
 
     expect(result.allowed).toEqual([]);
@@ -81,7 +81,7 @@ describe("authorizeDispatchTargets", () => {
       "source-owner/source-repo",
       "source-repo",
       "ci.yml",
-      async () => ({
+      () => ({
         found: true,
         config: {
           outbound: [],

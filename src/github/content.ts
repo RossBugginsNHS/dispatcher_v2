@@ -1,6 +1,6 @@
 import { parseDispatchingConfig, type DispatchingConfig } from "../domain/dispatching-schema/schema.js";
 
-export const DISPATCHING_CONFIG_PATH = ".github/dispatching.yml";
+export const DISPATCHING_CONFIG_PATHS = ["dispatching.yml", ".github/dispatching.yml"];
 
 export type FetchDispatchingConfigResult =
   | { found: true; config: DispatchingConfig }
@@ -23,33 +23,40 @@ export async function fetchDispatchingConfig(
   owner: string,
   repo: string,
 ): Promise<FetchDispatchingConfigResult> {
-  let rawContent: string;
+  let rawContent: string | undefined;
 
-  try {
-    const response = await client.repos.getContent({
-      owner,
-      repo,
-      path: DISPATCHING_CONFIG_PATH,
-    });
+  for (const path of DISPATCHING_CONFIG_PATHS) {
+    try {
+      const response = await client.repos.getContent({
+        owner,
+        repo,
+        path,
+      });
 
-    const data = response.data;
+      const data = response.data;
 
-    if (Array.isArray(data)) {
-      return { found: false, reason: "missing" };
+      if (Array.isArray(data)) {
+        continue;
+      }
+
+      const file = data;
+
+      if (file.type !== "file") {
+        continue;
+      }
+
+      rawContent = Buffer.from(file.content, "base64").toString("utf-8");
+      break;
+    } catch (error: unknown) {
+      if (isNotFoundError(error)) {
+        continue;
+      }
+      throw error;
     }
+  }
 
-    const file = data as { type: string; content: string; encoding: string };
-
-    if (file.type !== "file") {
-      return { found: false, reason: "missing" };
-    }
-
-    rawContent = Buffer.from(file.content, "base64").toString("utf-8");
-  } catch (error: unknown) {
-    if (isNotFoundError(error)) {
-      return { found: false, reason: "missing" };
-    }
-    throw error;
+  if (!rawContent) {
+    return { found: false, reason: "missing" };
   }
 
   try {
