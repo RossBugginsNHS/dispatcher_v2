@@ -148,6 +148,7 @@
 - **CloudWatch Logs IAM scoped to specific log group patterns** (least privilege).
 - **Explicit CloudWatch Log Groups with 90-day retention** (cost control + audit).
 - **API Gateway access logging enabled** (HTTP-level audit trail).
+- **Replaced asdf with mise for local tool version management** (supply-chain hardening — see finding 14).
 
 ## Needs decision
 
@@ -221,6 +222,16 @@
 - **Impact:** cost escalation and reduced forensic capability.  
 - **Fix:** added explicit CloudWatch Log Groups with configurable retention (default 90 days) for all five Lambda functions and API Gateway access logs. Enabled API Gateway access logging with structured JSON format.  
 - **Verification:** inspect Terraform plan for log group resources and API Gateway stage `access_log_settings`.
+- **Status:** **Fix applied**
+
+### 14) Local tool version manager (asdf) lacks supply-chain verification
+- **Severity:** Low  
+- **Category:** Developer environment / Supply chain  
+- **Evidence:** `.tool-versions` file in repository root used by asdf.  
+- **Exploit scenario:** asdf downloads plugin definitions from arbitrary GitHub repositories without checksum or signature verification. A compromised plugin source or a plugin source change could cause a developer to silently install a tampered tool binary. This is a local developer workstation risk but can propagate to supply-chain attacks if a developer builds and pushes artefacts from a compromised environment.  
+- **Impact:** silent installation of tampered Node.js or Terraform binaries on developer machines.  
+- **Fix:** replaced asdf with [`mise`](https://mise.jdx.dev/), which verifies tool downloads via checksums and fetches binaries directly from official distribution sources rather than through mutable plugin registries. Pinned tool versions are now declared in `mise.toml`. Dependabot is configured to track updates to `mise.toml`. The existing `.tool-versions` file is retained unchanged; `mise` reads it automatically and will honour either file, so both remain in sync by sharing the same version values.  
+- **Verification:** install `mise` locally, run `mise install` in the project root, and confirm the correct versions of Node.js and Terraform are installed; confirm `mise doctor` reports no trust issues.
 - **Status:** **Fix applied**
 
 ---
