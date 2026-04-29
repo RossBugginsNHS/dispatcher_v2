@@ -55,7 +55,9 @@ export async function registerGitHubWebhookHandler(
     encoding: "utf8",
   });
   await app.register(rateLimit, {
-    global: false,
+    global: true,
+    max: WEBHOOK_RATE_LIMIT_MAX_REQUESTS_PER_IP,
+    timeWindow: WEBHOOK_RATE_LIMIT_WINDOW,
   });
 
   app.post(
@@ -63,10 +65,6 @@ export async function registerGitHubWebhookHandler(
     {
       config: {
         rawBody: true,
-        rateLimit: {
-          max: WEBHOOK_RATE_LIMIT_MAX_REQUESTS_PER_IP,
-          timeWindow: WEBHOOK_RATE_LIMIT_WINDOW,
-        },
       },
     },
     async (request, reply) => {
