@@ -34,7 +34,7 @@ type EventBridgeBatch = {
 
 function normalizeRecords(event: unknown): EventBridgeRecord[] {
   if (Array.isArray((event as EventBridgeBatch).Records)) {
-    return ((event as EventBridgeBatch).Records ?? []) as EventBridgeRecord[];
+    return (event as EventBridgeBatch).Records ?? [];
   }
   return [event as EventBridgeRecord];
 }
@@ -66,13 +66,13 @@ export async function handler(event: unknown): Promise<void> {
       await appendDispatchEvent({
         ddb,
         eventsTableName: env.DISPATCH_EVENTS_TABLE_NAME,
-        event: cloudEvent as never,
+        event: cloudEvent,
       });
 
       await updateDispatchProjections({
         ddb,
         projectionsTableName: env.DISPATCH_PROJECTIONS_TABLE_NAME,
-        event: cloudEvent as never,
+        event: cloudEvent,
       });
     } catch (error) {
       // EventBridge retries on function errors, so rethrow after logging.

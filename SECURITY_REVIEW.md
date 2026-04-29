@@ -148,6 +148,9 @@
 - **CloudWatch Logs IAM scoped to specific log group patterns** (least privilege).
 - **Explicit CloudWatch Log Groups with 90-day retention** (cost control + audit).
 - **API Gateway access logging enabled** (HTTP-level audit trail).
+- **Replaced asdf with mise for local tool version management** (supply-chain hardening — see finding 14).
+- **Pinned Docker base images to SHA256 digests** (supply-chain hardening — see finding 15).
+- **Added Dependabot tracking for Docker images and Terraform providers** (supply-chain hardening — see findings 15 and 16).
 
 ## Needs decision
 
@@ -223,20 +226,54 @@
 - **Verification:** inspect Terraform plan for log group resources and API Gateway stage `access_log_settings`.
 - **Status:** **Fix applied**
 
+### 14) Local tool version manager (asdf) lacks supply-chain verification
+- **Severity:** Low  
+- **Category:** Developer environment / Supply chain  
+- **Evidence:** `.tool-versions` file in repository root used by asdf.  
+- **Exploit scenario:** asdf downloads plugin definitions from arbitrary GitHub repositories without checksum or signature verification. A compromised plugin source or a plugin source change could cause a developer to silently install a tampered tool binary. This is a local developer workstation risk but can propagate to supply-chain attacks if a developer builds and pushes artefacts from a compromised environment.  
+- **Impact:** silent installation of tampered Node.js or Terraform binaries on developer machines.  
+- **Fix:** replaced asdf with [`mise`](https://mise.jdx.dev/), which verifies tool downloads via checksums and fetches binaries directly from official distribution sources rather than through mutable plugin registries. Pinned tool versions are now declared in `mise.toml`. Dependabot is configured to track updates to `mise.toml`. The existing `.tool-versions` file is retained unchanged; `mise` reads it automatically and will honour either file, so both remain in sync by sharing the same version values.  
+- **Verification:** install `mise` locally, run `mise install` in the project root, and confirm the correct versions of Node.js and Terraform are installed; confirm `mise doctor` reports no trust issues.
+- **Status:** **Fix applied**
+
+### 15) Dockerfile base images use mutable tags (supply-chain risk)
+- **Severity:** High  
+- **Category:** Container / Supply chain  
+- **Evidence:** `Dockerfile` — `FROM node:22-alpine` (Docker Hub) and `FROM public.ecr.aws/lambda/nodejs:22` (ECR Public) both referenced by mutable floating tags.  
+- **Exploit scenario:** a tag (e.g. `:22-alpine`) can be silently overwritten on Docker Hub or ECR Public. A compromised maintainer or a registry hack that replaces the tag would cause the next `docker build` to pull a tampered image containing backdoored binaries, without any alert or integrity check failure.  
+- **Impact:** arbitrary code execution inside the build or Lambda runtime environment, potentially exfiltrating secrets, tokens, or producing a backdoored application artefact.  
+- **Fix:** pinned both base images to immutable SHA256 digests in `Dockerfile`. Added `docker` ecosystem to `dependabot.yml` so Dependabot opens automated PRs when new versions are released, at which point digests can be re-evaluated and updated.  
+  - `node:22-alpine` → `node:22-alpine@sha256:8ea2348b068a9544dae7317b4f3aafcdc032df1647bb7d768a05a5cad1a7683f`  
+  - `public.ecr.aws/lambda/nodejs:22` → `public.ecr.aws/lambda/nodejs:22@sha256:68eea3ead8b4675c0dace6dd8e22a799758b93f69a5b0dae61f043be620c7d6d`  
+- **Verification:** `grep '@sha256:' Dockerfile` — all `FROM` lines must contain a digest.
+- **Status:** **Fix applied**
+
+### 16) Terraform provider versions not locked with checksums
+- **Severity:** Medium  
+- **Category:** Infrastructure / Supply chain  
+- **Evidence:** `infrastructure/terraform/*/versions.tf` uses loose constraints (`~> 5.0`) and no `.terraform.lock.hcl` is committed to the repository.  
+- **Exploit scenario:** `terraform init` resolves the latest patch version of the AWS provider satisfying `~> 5.0` at run time and does not verify against a previously audited checksum. A compromised version in the HashiCorp registry (or a BGP/DNS hijack during init) could supply a tampered provider binary without detection.  
+- **Impact:** malicious provider code executes with full AWS credentials during `terraform plan` / `terraform apply`, enabling credential theft or infrastructure sabotage.  
+- **Fix:** run `terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_amd64 -platform=darwin_arm64` in each environment and module directory and commit the generated `.terraform.lock.hcl` files. Added `terraform` ecosystem entries to `dependabot.yml` for all three Terraform roots so provider version bumps are tracked automatically.  
+- **Verification:** confirm `.terraform.lock.hcl` exists in each Terraform root; verify CI `terraform init` output shows "Using previously-installed" rather than resolving fresh versions.
+- **Status:** **Partially applied (Dependabot tracking added; lock files still need to be generated and committed — see follow-up backlog)**
+
 ---
 
 ## Verification steps
 
 1. `npm run build`
 2. `npx vitest run test/dispatching-schema.test.ts test/dispatch-guardrails.test.ts test/webhook.test.ts`
-3. `npm run lint` *(currently fails due pre-existing unrelated lint errors in `src/async/event-store.ts` and `src/lambda/facts-processor-handler.ts`)*
+3. `npm run lint` — passes cleanly (unnecessary type assertions in `src/async/event-store.ts` and `src/lambda/facts-processor-handler.ts` have been resolved)
 4. Validate CI workflow conditions and job permissions in `.github/workflows/ci-cd.yml`
 5. Optional manual check: set `ADMIN_IP_ALLOWLIST=127.0.0.1` in Lambda-equivalent event tests and confirm access control behavior
+6. `grep '@sha256:' Dockerfile` — all `FROM` lines must contain a digest (Finding 15 verification)
 
 ---
 
 ## Follow-up backlog
 
+- **Commit Terraform provider lock files** — run `terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_amd64 -platform=darwin_arm64` in `infrastructure/terraform/modules/dispatcher_service`, `environments/dev`, and `environments/prod`, then commit the `.terraform.lock.hcl` files to the repository to enforce checksum-verified provider downloads in CI.
 - Add persistent replay protection store (DynamoDB TTL keyed by `x-github-delivery`).
 - Enforce `dispatching.yml` CODEOWNERS + protected branch review policy.
 - Add explicit source/target relationship registry (mutual-consent handshake).

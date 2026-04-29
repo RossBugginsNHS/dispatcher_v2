@@ -189,9 +189,15 @@ Health checks include: success rate, dispatch backlog depth, recent failures, da
 
 ### Prerequisites
 
-- Node.js 22 (see `.tool-versions`)
+- Node.js 22 (see `mise.toml`)
 - npm
 - A GitHub App with a webhook secret and private key
+
+> **Tool version management:** This project uses [`mise`](https://mise.jdx.dev/) for managing local tool versions.
+> `mise` verifies tool downloads via checksums and fetches from official sources, providing stronger
+> supply-chain guarantees than `asdf`. Install `mise` by following the
+> [official installation guide](https://mise.jdx.dev/getting-started.html), then run `mise install`
+> in the project root to install the pinned versions of Node.js and Terraform defined in `mise.toml`.
 
 ### Setup
 

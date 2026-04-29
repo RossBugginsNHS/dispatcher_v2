@@ -544,7 +544,7 @@ export async function readHourlyTrend(params: {
 
   const sorted = (response.Items ?? [])
     .map((item) => {
-      const row = item as Record<string, unknown>;
+      const row = item;
       const pk = asString(row.pk) ?? "";
       return {
         hour: pk.replace("hour#", ""),
