@@ -1,6 +1,6 @@
-# dispatcher_v2
+# GitHub Workflow Dispatcher
 
-A GitHub App backend service for **cross-repository workflow dispatching**. When a workflow completes in a source repository, dispatcher_v2 reads `dispatching.yml` configuration files, authorises eligible targets, and triggers matching workflows in those target repositories via the GitHub Actions workflow dispatch API.
+A GitHub App backend service for **cross-repository workflow dispatching**. When a workflow completes in a source repository, GitHub Workflow Dispatcher reads `dispatching.yml` configuration files, authorises eligible targets, and triggers matching workflows in those target repositories via the GitHub Actions workflow dispatch API.
 
 This is a rewrite of dispatcher v1 focused exclusively on dispatching behaviour. All repository vending, provisioning, and Terraform-execution-from-webhooks behaviour has been removed.
 
@@ -196,8 +196,8 @@ Health checks include: success rate, dispatch backlog depth, recent failures, da
 ### Setup
 
 ```bash
-git clone https://github.com/RossBugginsNHS/dispatcher_v2
-cd dispatcher_v2
+git clone https://github.com/RossBugginsNHS/github-workflow-dispatcher
+cd github-workflow-dispatcher
 npm install
 cp .env.example .env
 # Edit .env with your GitHub App credentials and any optional settings
@@ -315,8 +315,8 @@ gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
 Create the `dev` and `prod` environments (add manual review protection to `prod`):
 
 ```bash
-gh api -X PUT repos/<owner>/dispatcher_v2/environments/dev
-gh api -X PUT repos/<owner>/dispatcher_v2/environments/prod
+gh api -X PUT repos/<owner>/github-workflow-dispatcher/environments/dev
+gh api -X PUT repos/<owner>/github-workflow-dispatcher/environments/prod
 ```
 
 ### Manual Dev Deploy
@@ -417,7 +417,7 @@ Test coverage includes:
 ## Repository Structure
 
 ```
-dispatcher_v2/
+github-workflow-dispatcher/
 ├── src/
 │   ├── config/
 │   │   └── env.ts                     # Zod-validated environment schema

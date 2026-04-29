@@ -1,5 +1,5 @@
 {
-  "name": "dispatcher_v2",
+  "name": "github-workflow-dispatcher",
   "version": "1.0.0",
   "description": "Dispatching-only GitHub App webhook service",
   "type": "module",
