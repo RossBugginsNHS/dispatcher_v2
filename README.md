@@ -271,6 +271,7 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
   - Current replay cache is in-memory per runtime instance; for stronger multi-instance guarantees, add a shared store (for example DynamoDB TTL).
 - Dispatch planner enforces guard rails before authorization:
   - default-branch-only source runs (configurable),
+  - fork-sourced run rejection (head repository differs from source repository),
   - optional source/target/workflow allowlists,
   - self-dispatch block (`source repo + workflow` to itself),
   - duplicate target suppression,
@@ -402,11 +403,14 @@ Test coverage includes:
 | `dispatching-schema.test.ts` | `dispatching.yml` YAML parsing and Zod schema validation |
 | `trigger-matcher.test.ts` | Outbound rule matching logic |
 | `authorization-service.test.ts` | Bilateral source/target authorization |
+| `dispatch-guardrails.test.ts` | Source workflow run evaluation and per-target guardrail filtering |
 | `dispatch-service.test.ts` | `workflow_dispatch` API call with retry logic |
 | `webhook.test.ts` | Webhook signature verification and event routing |
 | `content.test.ts` | `dispatching.yml` fetching from GitHub repository contents |
 | `issue-service.test.ts` | GitHub issue creation on dispatch failure |
 | `health.test.ts` | Health check computation from projection data |
+| `replay-protection.test.ts` | In-memory replay detection with TTL expiry |
+| `admin-observability-handler.test.ts` | `isAdminRequestAllowed` IP allowlist enforcement |
 
 ---
 
@@ -424,11 +428,13 @@ dispatcher_v2/
 │   │       └── match.ts               # Outbound rule matching
 │   ├── github/
 │   │   ├── content.ts                 # Fetch dispatching.yml from GitHub API
+│   │   ├── replay-protection.ts       # In-memory duplicate delivery-ID detection (10-min TTL)
 │   │   ├── types.ts                   # WorkflowRunPayload and event context types
 │   │   └── webhook-handler.ts         # Fastify plugin: webhook verification + routing
 │   ├── services/
 │   │   ├── authorization-service.ts   # Bilateral inbound/outbound permission check
 │   │   ├── dispatch-event-store.ts    # In-memory event store (local mode)
+│   │   ├── dispatch-guardrails.ts     # Source + target guardrail evaluation and filtering
 │   │   ├── dispatch-service.ts        # workflow_dispatch API call with retry
 │   │   ├── issue-service.ts           # GitHub issue creation
 │   │   └── workflow-run-handler.ts    # Orchestrates full dispatch flow (local mode)
