@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import rawBody from "fastify-raw-body";
+import rateLimit from "@fastify/rate-limit";
 import { Webhooks } from "@octokit/webhooks";
 
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "./types.js";
@@ -41,11 +42,19 @@ export async function registerGitHubWebhookHandler(
     encoding: "utf8",
   });
 
+  await app.register(rateLimit, {
+    global: false,
+  });
+
   app.post(
     "/webhooks/github",
     {
       config: {
         rawBody: true,
+        rateLimit: {
+          max: 100,
+          timeWindow: "1 minute",
+        },
       },
     },
     async (request, reply) => {
@@ -64,8 +73,15 @@ export async function registerGitHubWebhookHandler(
         return reply.code(400).send({ error: "Missing required GitHub webhook headers or payload" });
       }
 
+      const isValidSignature = await webhooks.verify(payload, signature);
+      if (!isValidSignature) {
+        app.log.warn({ deliveryId, eventName }, "Rejected GitHub webhook with invalid signature");
+        return reply.code(401).send({ error: "Invalid webhook signature" });
+      }
+
       if (isReplayDelivery(deliveryId)) {
-        return reply.code(409).send({ error: "Duplicate delivery" });
+        app.log.warn({ deliveryId, eventName }, "Rejected duplicate GitHub webhook delivery");
+        return reply.code(409).send({ error: "Duplicate webhook delivery" });
       }
 
       try {
@@ -79,7 +95,7 @@ export async function registerGitHubWebhookHandler(
         return reply.code(202).send({ accepted: true });
       } catch (error) {
         app.log.warn({ err: error, deliveryId, eventName }, "Rejected GitHub webhook");
-        return reply.code(401).send({ error: "Invalid webhook signature" });
+        return reply.code(400).send({ error: "Failed to process webhook" });
       }
     },
   );
