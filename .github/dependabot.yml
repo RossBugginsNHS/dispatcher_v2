@@ -15,3 +15,23 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: terraform
+    directory: "/infrastructure/terraform/modules/dispatcher_service"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: terraform
+    directory: "/infrastructure/terraform/environments/dev"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: terraform
+    directory: "/infrastructure/terraform/environments/prod"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
