@@ -192,19 +192,102 @@ fi
 echo "==> Terraform init"
 terraform -chdir="$TF_DIR" init -reconfigure "${BACKEND_ARG[@]}"
 
-echo "==> Terraform plan"
-terraform -chdir="$TF_DIR" plan -out=tfplan
+plan_infra() {
+  echo "==> Terraform plan"
+  terraform -chdir="$TF_DIR" plan -out=tfplan
+}
+
+import_preexisting_log_groups() {
+  local imported_any=false
+  local project_name
+  local env_name="dev"
+  local name_prefix
+  local suffix resource_address log_group_name
+
+  project_name="${TF_VAR_project_name:-dispatcher-v2}"
+  name_prefix="${project_name}-${env_name}"
+
+  for suffix in ingress planner dispatcher admin facts-processor; do
+    resource_address="module.dispatcher_service.aws_cloudwatch_log_group.${suffix//-/_}"
+    log_group_name="/aws/lambda/${name_prefix}-${suffix}"
+
+    if terraform -chdir="$TF_DIR" state show "$resource_address" >/dev/null 2>&1; then
+      continue
+    fi
+
+    if ! AWS_PAGER="" aws logs describe-log-groups \
+      --region "$REGION" \
+      --log-group-name-prefix "$log_group_name" \
+      --query "length(logGroups[?logGroupName=='${log_group_name}'])" \
+      --output text >/tmp/dispatcher-dev-loggroup-check.txt 2>/tmp/dispatcher-dev-loggroup-check.err; then
+      echo "ERROR: failed checking log group existence: $log_group_name" >&2
+      cat /tmp/dispatcher-dev-loggroup-check.err >&2
+      return 1
+    fi
+
+    if [[ "$(cat /tmp/dispatcher-dev-loggroup-check.txt)" != "1" ]]; then
+      continue
+    fi
+
+    echo "==> Importing existing CloudWatch log group into state"
+    echo "    address: $resource_address"
+    echo "    id:      $log_group_name"
+    terraform -chdir="$TF_DIR" import "$resource_address" "$log_group_name"
+    imported_any=true
+  done
+
+  if [[ "$imported_any" == "true" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+run_apply() {
+  local apply_log
+  local apply_exit=0
+  apply_log="$(mktemp -t dispatcher-dev-apply.XXXXXX.log)"
+
+  echo "==> Terraform apply"
+  if [[ "$AUTO_APPROVE" == "true" ]]; then
+    terraform -chdir="$TF_DIR" apply -auto-approve tfplan 2>&1 | tee "$apply_log" || apply_exit=$?
+  else
+    terraform -chdir="$TF_DIR" apply tfplan 2>&1 | tee "$apply_log" || apply_exit=$?
+  fi
+
+  if [[ "$apply_exit" -eq 0 ]]; then
+    rm -f "$apply_log"
+    return 0
+  fi
+
+  if grep -q "ResourceAlreadyExistsException: The specified log group already exists" "$apply_log"; then
+    echo "==> Detected existing CloudWatch log groups not tracked in Terraform state"
+    if import_preexisting_log_groups; then
+      echo "==> Re-planning after importing existing log groups"
+      plan_infra
+
+      echo "==> Retrying terraform apply"
+      if [[ "$AUTO_APPROVE" == "true" ]]; then
+        terraform -chdir="$TF_DIR" apply -auto-approve tfplan
+      else
+        terraform -chdir="$TF_DIR" apply tfplan
+      fi
+      rm -f "$apply_log"
+      return 0
+    fi
+  fi
+
+  rm -f "$apply_log"
+  return "$apply_exit"
+}
+
+plan_infra
 
 if [[ "$PLAN_ONLY" == "true" ]]; then
   echo "==> Plan-only mode complete"
   exit 0
 fi
 
-echo "==> Terraform apply"
-if [[ "$AUTO_APPROVE" == "true" ]]; then
-  terraform -chdir="$TF_DIR" apply -auto-approve tfplan
-else
-  terraform -chdir="$TF_DIR" apply tfplan
-fi
+run_apply
 
 echo "==> Done"
