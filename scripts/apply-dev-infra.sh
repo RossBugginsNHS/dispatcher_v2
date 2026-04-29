@@ -128,6 +128,7 @@ if [[ "$BUILD_AND_PUSH_IMAGE" == "true" ]]; then
   echo "==> Building app"
   (
     cd "$REPO_ROOT"
+    npm ci --no-audit --no-fund
     npm run build
   )
 
