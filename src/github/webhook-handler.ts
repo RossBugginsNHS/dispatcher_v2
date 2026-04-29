@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import rawBody from "fastify-raw-body";
-import rateLimit from "@fastify/rate-limit";
 import { Webhooks } from "@octokit/webhooks";
 
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "./types.js";
@@ -21,9 +20,6 @@ type RequestWithRawBody = {
   headers: Record<string, string | string[] | undefined>;
 };
 
-const WEBHOOK_RATE_LIMIT_WINDOW = "1 minute";
-const WEBHOOK_RATE_LIMIT_MAX_REQUESTS_PER_IP = 100;
-
 export async function registerGitHubWebhookHandler(
   app: FastifyInstance,
   options: RegisterGitHubWebhookHandlerOptions,
@@ -43,11 +39,6 @@ export async function registerGitHubWebhookHandler(
     global: false,
     runFirst: true,
     encoding: "utf8",
-  });
-  await app.register(rateLimit, {
-    global: true,
-    max: WEBHOOK_RATE_LIMIT_MAX_REQUESTS_PER_IP,
-    timeWindow: WEBHOOK_RATE_LIMIT_WINDOW,
   });
 
   app.post(

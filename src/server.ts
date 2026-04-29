@@ -1,5 +1,6 @@
 import type { App } from "@octokit/app";
 import Fastify from "fastify";
+import rateLimit from "@fastify/rate-limit";
 
 import { env } from "./config/env.js";
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "./github/types.js";
@@ -21,6 +22,12 @@ export async function buildServer(options: BuildServerOptions = {}) {
     logger: true,
   });
   const startedAt = new Date().toISOString();
+
+  await app.register(rateLimit, {
+    global: true,
+    max: 100,
+    timeWindow: "1 minute",
+  });
 
   app.get("/health", () => {
     return { status: "ok" };
