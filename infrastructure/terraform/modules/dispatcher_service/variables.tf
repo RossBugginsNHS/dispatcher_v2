@@ -92,3 +92,9 @@ variable "lambda_dispatcher_handler" {
   type        = string
   default     = "dist/lambda/dispatcher-handler.handler"
 }
+
+variable "log_retention_days" {
+  description = "CloudWatch Logs retention in days for Lambda and API Gateway log groups"
+  type        = number
+  default     = 90
+}
