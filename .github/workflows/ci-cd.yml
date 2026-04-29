@@ -76,7 +76,13 @@ jobs:
 
       - name: Terraform Init
         working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
-        run: terraform init -backend=false
+        run: |
+          cat > backend_override.tf << 'EOF'
+          terraform {
+            backend "local" {}
+          }
+          EOF
+          terraform init -reconfigure
 
       - name: Terraform Validate
         working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
