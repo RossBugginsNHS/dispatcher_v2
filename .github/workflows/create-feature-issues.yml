@@ -1,12 +1,6 @@
 name: Create Feature Issues
 
 on:
-  push:
-    branches:
-      - copilot/plan-new-features
-    paths:
-      - '.github/workflows/create-feature-issues.yml'
-      - 'scripts/create-feature-issues.py'
   workflow_dispatch:
     inputs:
       target_branch:
@@ -25,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.inputs.target_branch || github.ref_name }}
+          ref: ${{ github.event.inputs.target_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create issues and update FEATURES.md
