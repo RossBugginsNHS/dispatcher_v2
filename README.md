@@ -427,20 +427,59 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
 
 ### CI/CD Pipeline
 
-The GitHub Actions workflow at [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml) runs on every push to `main` and on pull requests.
+There are four GitHub Actions workflows:
 
-**Jobs:**
+| Workflow | File | Trigger | Purpose |
+|---|---|---|---|
+| CI | [`ci.yml`](.github/workflows/ci.yml) | push/PR to `main` | Build, lint, test, Terraform validate + test |
+| Publish App Container | [`publish-app.yml`](.github/workflows/publish-app.yml) | push to `main`, `v*` tags, PR to `main` | Build and publish app image to GHCR |
+| Publish Dev Container | [`publish-devcontainer.yml`](.github/workflows/publish-devcontainer.yml) | push to `main` (devcontainer paths), `devcontainer/v*` tags | Build and publish devcontainer image to GHCR |
+| Deploy to AWS | [`deploy-aws.yml`](.github/workflows/deploy-aws.yml) | manual `workflow_dispatch` | Promote GHCR image to ECR and run Terraform |
 
-1. **quality** — `npm ci`, `npm run build`, `npm run lint`, `npm test`
-2. **terraform-validate** — `terraform validate` for both `dev` and `prod` environments
-3. **deploy-dev** — builds and pushes the Docker image to ECR (tagged with the commit SHA), then runs `terraform apply` for the `dev` environment (skipped on pull requests)
-4. **deploy-prod** — same as dev, runs only when manually triggered via `workflow_dispatch` with `deploy_prod=true`
+#### App image tagging (`ghcr.io/.../app`)
+
+| Trigger | Tags applied |
+|---|---|
+| Push to `main` | `sha-<short-sha>` only |
+| Push `v1.2.3` tag | `latest`, `1.2.3`, `1.2`, `sha-<short-sha>` |
+
+#### Devcontainer image tagging (`ghcr.io/.../devcontainer`)
+
+| Trigger | Tags applied |
+|---|---|
+| Push to `main` (devcontainer paths) | `sha-<short-sha>` only |
+| Push `devcontainer/v1.2.3` tag | `latest`, `1.2.3`, `1.2`, `sha-<short-sha>` |
+
+#### Cutting a release
+
+1. **App release** — push a `v*` tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+   `publish-app.yml` builds and pushes `app:latest`, `app:1.0.0`, and `app:1.0` to GHCR.
+
+2. **Devcontainer release** — push a `devcontainer/v*` tag:
+   ```bash
+   git tag devcontainer/v1.0.0
+   git push origin devcontainer/v1.0.0
+   ```
+   `publish-devcontainer.yml` builds and pushes `devcontainer:latest`, `devcontainer:1.0.0`, and `devcontainer:1.0` to GHCR.
+
+3. **Deploy to AWS** — trigger `deploy-aws.yml` via the GitHub UI or CLI:
+   ```bash
+   gh workflow run deploy-aws.yml \
+     -f environment=dev \
+     -f image_tag=1.0.0
+   ```
+   The workflow pulls the chosen image from GHCR, promotes it to ECR, and runs `terraform apply`.
 
 **Required GitHub Secrets / Variables:**
 
 | Name | Type | Description |
 |---|---|---|
 | `AWS_ROLE_TO_ASSUME` | Secret | IAM role ARN for OIDC authentication |
+| `APP_ID` | Secret | GitHub App numeric ID |
 | `AWS_REGION` | Variable | e.g. `eu-west-2` |
 | `ECR_REPOSITORY_DEV` | Variable | ECR repo name for dev, e.g. `dispatcher-v2-dev-dispatcher` |
 | `ECR_REPOSITORY_PROD` | Variable | ECR repo name for prod |
@@ -451,6 +490,7 @@ Set secrets and variables with the GitHub CLI:
 
 ```bash
 gh secret set AWS_ROLE_TO_ASSUME --body "arn:aws:iam::<account>:role/<role>"
+gh secret set APP_ID --body "<github-app-id>"
 gh variable set AWS_REGION --body "eu-west-2"
 gh variable set ECR_REPOSITORY_DEV --body "dispatcher-v2-dev-dispatcher"
 gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
@@ -886,20 +926,59 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
 
 ### CI/CD Pipeline
 
-The GitHub Actions workflow at [.github/workflows/ci-cd.yml](.github/workflows/ci-cd.yml) runs on every push to `main` and on pull requests.
+There are four GitHub Actions workflows:
 
-**Jobs:**
+| Workflow | File | Trigger | Purpose |
+|---|---|---|---|
+| CI | [`ci.yml`](.github/workflows/ci.yml) | push/PR to `main` | Build, lint, test, Terraform validate + test |
+| Publish App Container | [`publish-app.yml`](.github/workflows/publish-app.yml) | push to `main`, `v*` tags, PR to `main` | Build and publish app image to GHCR |
+| Publish Dev Container | [`publish-devcontainer.yml`](.github/workflows/publish-devcontainer.yml) | push to `main` (devcontainer paths), `devcontainer/v*` tags | Build and publish devcontainer image to GHCR |
+| Deploy to AWS | [`deploy-aws.yml`](.github/workflows/deploy-aws.yml) | manual `workflow_dispatch` | Promote GHCR image to ECR and run Terraform |
 
-1. **quality** — `npm ci`, `npm run build`, `npm run lint`, `npm test`
-2. **terraform-validate** — `terraform validate` for both `dev` and `prod` environments
-3. **deploy-dev** — builds and pushes the Docker image to ECR (tagged with the commit SHA), then runs `terraform apply` for the `dev` environment (skipped on pull requests)
-4. **deploy-prod** — same as dev, runs only when manually triggered via `workflow_dispatch` with `deploy_prod=true`
+#### App image tagging (`ghcr.io/.../app`)
+
+| Trigger | Tags applied |
+|---|---|
+| Push to `main` | `sha-<short-sha>` only |
+| Push `v1.2.3` tag | `latest`, `1.2.3`, `1.2`, `sha-<short-sha>` |
+
+#### Devcontainer image tagging (`ghcr.io/.../devcontainer`)
+
+| Trigger | Tags applied |
+|---|---|
+| Push to `main` (devcontainer paths) | `sha-<short-sha>` only |
+| Push `devcontainer/v1.2.3` tag | `latest`, `1.2.3`, `1.2`, `sha-<short-sha>` |
+
+#### Cutting a release
+
+1. **App release** — push a `v*` tag:
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+   `publish-app.yml` builds and pushes `app:latest`, `app:1.0.0`, and `app:1.0` to GHCR.
+
+2. **Devcontainer release** — push a `devcontainer/v*` tag:
+   ```bash
+   git tag devcontainer/v1.0.0
+   git push origin devcontainer/v1.0.0
+   ```
+   `publish-devcontainer.yml` builds and pushes `devcontainer:latest`, `devcontainer:1.0.0`, and `devcontainer:1.0` to GHCR.
+
+3. **Deploy to AWS** — trigger `deploy-aws.yml` via the GitHub UI or CLI:
+   ```bash
+   gh workflow run deploy-aws.yml \
+     -f environment=dev \
+     -f image_tag=1.0.0
+   ```
+   The workflow pulls the chosen image from GHCR, promotes it to ECR, and runs `terraform apply`.
 
 **Required GitHub Secrets / Variables:**
 
 | Name | Type | Description |
 |---|---|---|
 | `AWS_ROLE_TO_ASSUME` | Secret | IAM role ARN for OIDC authentication |
+| `APP_ID` | Secret | GitHub App numeric ID |
 | `AWS_REGION` | Variable | e.g. `eu-west-2` |
 | `ECR_REPOSITORY_DEV` | Variable | ECR repo name for dev, e.g. `dispatcher-v2-dev-dispatcher` |
 | `ECR_REPOSITORY_PROD` | Variable | ECR repo name for prod |
@@ -910,6 +989,7 @@ Set secrets and variables with the GitHub CLI:
 
 ```bash
 gh secret set AWS_ROLE_TO_ASSUME --body "arn:aws:iam::<account>:role/<role>"
+gh secret set APP_ID --body "<github-app-id>"
 gh variable set AWS_REGION --body "eu-west-2"
 gh variable set ECR_REPOSITORY_DEV --body "dispatcher-v2-dev-dispatcher"
 gh variable set ECR_REPOSITORY_PROD --body "dispatcher-v2-prod-dispatcher"
