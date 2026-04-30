@@ -6,26 +6,29 @@ This document captures potential new features that could be added to the GitHub 
 
 ## Table of Contents
 
-1. [Workflow Inputs Passthrough](#1-workflow-inputs-passthrough)
-2. [Dispatch Chains and Sequencing](#2-dispatch-chains-and-sequencing)
-3. [Conditional Dispatch Rules](#3-conditional-dispatch-rules)
-4. [Approval Gates Before Dispatch](#4-approval-gates-before-dispatch)
-5. [Time-Window Guards](#5-time-window-guards)
-6. [Deployment Environment Promotion Pipeline](#6-deployment-environment-promotion-pipeline)
-7. [Rollback Trigger on Target Failure](#7-rollback-trigger-on-target-failure)
-8. [Notifications (Slack / Teams / Webhook)](#8-notifications-slack--teams--webhook)
-9. [Additional Trigger Events](#9-additional-trigger-events)
-10. [Dry-Run / Preview Mode](#10-dry-run--preview-mode)
-11. [Gradual Rollout (Canary Dispatch)](#11-gradual-rollout-canary-dispatch)
-12. [Multi-Organisation Support](#12-multi-organisation-support)
-13. [GitHub Deployment API Integration](#13-github-deployment-api-integration)
-14. [Dispatch Replay from Admin UI](#14-dispatch-replay-from-admin-ui)
-15. [Dispatch History Diff View](#15-dispatch-history-diff-view)
-16. [Supply Chain Attestation Passthrough](#16-supply-chain-attestation-passthrough)
+1. [Workflow Inputs Passthrough](#1-workflow-inputs-passthrough) — [#56](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/56)
+2. [Dispatch Chains and Sequencing](#2-dispatch-chains-and-sequencing) — [#57](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/57)
+3. [Conditional Dispatch Rules](#3-conditional-dispatch-rules) — [#58](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/58)
+4. [Approval Gates Before Dispatch](#4-approval-gates-before-dispatch) — [#59](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/59)
+5. [Time-Window Guards](#5-time-window-guards) — [#60](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/60)
+6. [Deployment Environment Promotion Pipeline](#6-deployment-environment-promotion-pipeline) — [#61](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/61)
+7. [Rollback Trigger on Target Failure](#7-rollback-trigger-on-target-failure) — [#62](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/62)
+8. [Notifications (Slack / Teams / Webhook)](#8-notifications-slack--teams--webhook) — [#63](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/63)
+9. [Additional Trigger Events](#9-additional-trigger-events) — [#64](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/64)
+10. [Dry-Run / Preview Mode](#10-dry-run--preview-mode) — [#65](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/65)
+11. [Gradual Rollout (Canary Dispatch)](#11-gradual-rollout-canary-dispatch) — [#66](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/66)
+12. [Multi-Organisation Support](#12-multi-organisation-support) — [#67](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/67)
+13. [GitHub Deployment API Integration](#13-github-deployment-api-integration) — [#68](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/68)
+14. [Dispatch Replay from Admin UI](#14-dispatch-replay-from-admin-ui) — [#69](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/69)
+15. [Dispatch History Diff View](#15-dispatch-history-diff-view) — [#70](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/70)
+16. [Supply Chain Attestation Passthrough](#16-supply-chain-attestation-passthrough) — [#71](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/71)
 
 ---
 
 ## 1. Workflow Inputs Passthrough
+
+> **GitHub Issue:** [#56](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/56)
+
 
 **Summary**
 Allow outbound rules to map source workflow run metadata (SHA, branch, run ID, run URL, custom outputs) to named inputs in the target workflow.
@@ -58,6 +61,9 @@ Supported template variables: `source.sha`, `source.head_branch`, `source.run_id
 ---
 
 ## 2. Dispatch Chains and Sequencing
+
+> **GitHub Issue:** [#57](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/57)
+
 
 **Summary**
 Allow a `dispatching.yml` to declare that a set of target workflows must be triggered **in order** — each subsequent target only starts after the previous one completes successfully.
@@ -93,6 +99,9 @@ Each step waits for a `workflow_run.completed` event from the previous step befo
 
 ## 3. Conditional Dispatch Rules
 
+> **GitHub Issue:** [#58](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/58)
+
+
 **Summary**
 Allow outbound rules to include a `conditions` block that must evaluate to true before a target is dispatched.
 
@@ -122,6 +131,9 @@ Conditions would be evaluated against a set of safe, read-only source-run contex
 ---
 
 ## 4. Approval Gates Before Dispatch
+
+> **GitHub Issue:** [#59](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/59)
+
 
 **Summary**
 Allow targets to declare that a human approval is required before the workflow dispatch API is called.
@@ -159,6 +171,9 @@ outbound:
 
 ## 5. Time-Window Guards
 
+> **GitHub Issue:** [#60](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/60)
+
+
 **Summary**
 Allow outbound rules or global configuration to define time windows during which dispatch is permitted. Dispatches outside those windows are deferred or denied.
 
@@ -193,6 +208,9 @@ outbound:
 
 ## 6. Deployment Environment Promotion Pipeline
 
+> **GitHub Issue:** [#61](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/61)
+
+
 **Summary**
 Provide a first-class concept of **environments** (dev → staging → prod) with guardrails that prevent promotion if a lower environment is in a failing state.
 
@@ -223,6 +241,9 @@ outbound:
 
 ## 7. Rollback Trigger on Target Failure
 
+> **GitHub Issue:** [#62](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/62)
+
+
 **Summary**
 Allow an outbound rule to declare a rollback workflow that is automatically dispatched when a target workflow run fails.
 
@@ -252,6 +273,9 @@ outbound:
 ---
 
 ## 8. Notifications (Slack / Teams / Webhook)
+
+> **GitHub Issue:** [#63](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/63)
+
 
 **Summary**
 Allow outbound rules or global configuration to specify notification targets that receive a message when a dispatch succeeds, fails, or is denied.
@@ -284,6 +308,9 @@ notifications:
 ---
 
 ## 9. Additional Trigger Events
+
+> **GitHub Issue:** [#64](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/64)
+
 
 **Summary**
 Extend the dispatcher to react to GitHub events beyond `workflow_run.completed`, including `push` (to a tagged ref), `release.published`, `pull_request.merged`, and `schedule`.
@@ -318,6 +345,9 @@ triggers:
 
 ## 10. Dry-Run / Preview Mode
 
+> **GitHub Issue:** [#65](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/65)
+
+
 **Summary**
 Add a `?dry_run=true` query parameter (or a request header) to the webhook endpoint that evaluates the full dispatch plan (authorization, guardrails, matching) but does not call the GitHub API or produce any side effects.
 
@@ -333,6 +363,9 @@ Operators adding new `dispatching.yml` rules want to validate them against a rea
 ---
 
 ## 11. Gradual Rollout (Canary Dispatch)
+
+> **GitHub Issue:** [#66](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/66)
+
 
 **Summary**
 Allow an outbound rule to specify that only a percentage of eligible dispatch events should actually trigger the target workflow, enabling canary or staged rollout of new pipeline relationships.
@@ -360,6 +393,9 @@ outbound:
 
 ## 12. Multi-Organisation Support
 
+> **GitHub Issue:** [#67](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/67)
+
+
 **Summary**
 Allow the dispatcher to cross GitHub organisation boundaries — dispatching from a workflow in `org-a/repo` to a workflow in `org-b/repo`, provided both repositories' `dispatching.yml` files permit it and the GitHub App is installed in both organisations.
 
@@ -374,6 +410,9 @@ Large enterprises often have separate GitHub organisations for different busines
 ---
 
 ## 13. GitHub Deployment API Integration
+
+> **GitHub Issue:** [#68](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/68)
+
 
 **Summary**
 When the dispatcher triggers a target workflow, create a GitHub Deployment (via the Deployments API) in the target repository so that deployment status appears in the GitHub UI (pull request checks, environment tab, etc.).
@@ -404,6 +443,9 @@ outbound:
 
 ## 14. Dispatch Replay from Admin UI
 
+> **GitHub Issue:** [#69](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/69)
+
+
 **Summary**
 Add a "Replay" button in the admin observability dashboard that re-triggers a past dispatch — either re-running a failed dispatch or re-enqueuing a historical one for testing purposes.
 
@@ -420,6 +462,9 @@ When a dispatch fails due to a transient GitHub API error, operators currently h
 
 ## 15. Dispatch History Diff View
 
+> **GitHub Issue:** [#70](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/70)
+
+
 **Summary**
 Add a dashboard view that shows what changed between two dispatch plans for the same source repository — making it easy to see when a new target was added, an existing one was removed, or authorisation for a route was revoked.
 
@@ -434,6 +479,9 @@ Over time, `dispatching.yml` files change. Currently there is no way to see — 
 ---
 
 ## 16. Supply Chain Attestation Passthrough
+
+> **GitHub Issue:** [#71](https://github.com/RossBugginsNHS/github-workflow-dispatcher/issues/71)
+
 
 **Summary**
 When the source workflow produces an SLSA provenance attestation or an SBOM (Software Bill of Materials), automatically pass a reference to that attestation as an input to the target workflow so that the deployment pipeline can verify it before proceeding.
