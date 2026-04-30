@@ -42,6 +42,7 @@ async function start(): Promise<void> {
         sourceRepoAllowlist: env.SOURCE_REPO_ALLOWLIST,
         targetRepoAllowlist: env.TARGET_REPO_ALLOWLIST,
         sourceWorkflowAllowlist: env.SOURCE_WORKFLOW_ALLOWLIST,
+        allowedSourceConclusions: env.ALLOWED_SOURCE_CONCLUSIONS,
       },
       eventStore,
     });

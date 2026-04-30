@@ -71,6 +71,38 @@ describe("executeWorkflowDispatches", () => {
     expect(results[2]).toEqual({ target: targets[2], status: "success", attempts: 1 });
   });
 
+  it("uses per-target ref override when specified", async () => {
+    const createWorkflowDispatch = vi.fn().mockResolvedValue({});
+
+    const client = {
+      actions: { createWorkflowDispatch },
+    } as unknown as DispatchActionsClient;
+
+    const targets = [
+      { owner: "acme", repo: "target-a", workflow: "deploy.yml", ref: "release" },
+      { owner: "acme", repo: "target-b", workflow: "release.yml" },
+    ];
+
+    const log = createLogger() as never;
+
+    await executeWorkflowDispatches(client, targets, "main", log, {
+      maxRetries: 0,
+      retryBaseDelayMs: 0,
+    });
+
+    expect(createWorkflowDispatch).toHaveBeenNthCalledWith(1, {
+      owner: "acme",
+      repo: "target-a",
+      workflow_id: "deploy.yml",
+      ref: "release",
+    });
+    expect(createWorkflowDispatch).toHaveBeenNthCalledWith(2, {
+      owner: "acme",
+      repo: "target-b",
+      workflow_id: "release.yml",
+      ref: "main",
+    });
+  });
   it("retries transient status errors and eventually succeeds", async () => {
     const createWorkflowDispatch = vi
       .fn()

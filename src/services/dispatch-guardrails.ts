@@ -10,13 +10,15 @@ export type GuardrailSettings = {
   sourceRepoAllowlist: string;
   targetRepoAllowlist: string;
   sourceWorkflowAllowlist: string;
+  allowedSourceConclusions: string;
 };
 
 export type SourceGuardrailDeniedReason =
   | "source_not_default_branch"
   | "source_workflow_not_allowlisted"
   | "source_repo_not_allowlisted"
-  | "source_from_fork";
+  | "source_from_fork"
+  | "source_conclusion_not_allowed";
 
 export type TargetGuardrailDeniedReason =
   | "target_repo_not_allowlisted"
@@ -42,6 +44,11 @@ export function evaluateSourceWorkflowRun(
     if (!headBranch || !defaultBranch || headBranch !== defaultBranch) {
       return { allowed: false, reason: "source_not_default_branch" };
     }
+  }
+
+  const conclusion = payload.workflow_run.conclusion?.toLowerCase() ?? "";
+  if (!isAllowed(conclusion, settings.allowedSourceConclusions)) {
+    return { allowed: false, reason: "source_conclusion_not_allowed" };
   }
 
   if (!isAllowed(sourceRepoFullName, settings.sourceRepoAllowlist)) {
@@ -109,7 +116,21 @@ function isAllowed(value: string, rawAllowlist: string): boolean {
   if (allowlist.size === 0) {
     return true;
   }
-  return allowlist.has(value.toLowerCase());
+  const normalizedValue = value.toLowerCase();
+  for (const pattern of allowlist) {
+    if (matchesPattern(normalizedValue, pattern)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function matchesPattern(value: string, pattern: string): boolean {
+  if (!pattern.includes("*")) {
+    return value === pattern;
+  }
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`).test(value);
 }
 
 function isSelfDispatch(

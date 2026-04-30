@@ -4,6 +4,7 @@ export type ResolvedDispatchTarget = {
   owner: string;
   repo: string;
   workflow: string;
+  ref?: string;
 };
 
 export function matchOutboundTargets(
@@ -22,6 +23,7 @@ export function matchOutboundTargets(
           owner,
           repo,
           workflow: normalizeWorkflowName(target.workflow),
+          ...(target.ref !== undefined ? { ref: target.ref } : {}),
         };
       }),
     );

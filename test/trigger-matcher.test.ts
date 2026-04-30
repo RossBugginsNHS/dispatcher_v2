@@ -40,6 +40,27 @@ describe("matchOutboundTargets", () => {
     ]);
   });
 
+  it("passes through an optional per-target ref override", () => {
+    const config: DispatchingConfig = {
+      outbound: [
+        {
+          source: { workflow: "ci.yml" },
+          targets: [
+            { repository: "target-a", workflow: "deploy.yml", ref: "release" },
+            { repository: "target-b", workflow: "deploy.yml" },
+          ],
+        },
+      ],
+      inbound: [],
+    };
+
+    const targets = matchOutboundTargets(config, "source-owner", "ci.yml");
+
+    expect(targets[0]).toEqual({ owner: "source-owner", repo: "target-a", workflow: "deploy.yml", ref: "release" });
+    expect(targets[1]).toEqual({ owner: "source-owner", repo: "target-b", workflow: "deploy.yml" });
+    expect(targets[1]?.ref).toBeUndefined();
+  });
+
   it("returns no targets when workflow does not match any outbound rule", () => {
     const config: DispatchingConfig = {
       outbound: [

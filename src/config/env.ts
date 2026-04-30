@@ -28,6 +28,7 @@ const EnvSchema = z.object({
   SOURCE_REPO_ALLOWLIST: z.string().default(""),
   TARGET_REPO_ALLOWLIST: z.string().default(""),
   SOURCE_WORKFLOW_ALLOWLIST: z.string().default(""),
+  ALLOWED_SOURCE_CONCLUSIONS: z.string().default("success"),
   ADMIN_IP_ALLOWLIST: z.string().default(""),
 });
 

@@ -4,6 +4,7 @@ import { z } from "zod";
 const OutboundTargetSchema = z.object({
   repository: z.string().min(1),
   workflow: z.string().min(1),
+  ref: z.string().min(1).optional(),
 }).strict();
 
 const OutboundRuleSchema = z.object({
