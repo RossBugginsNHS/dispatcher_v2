@@ -19,10 +19,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Image is always lowercased; GitHub Container Registry requires lowercase names.
-  IMAGE_NAME: ghcr.io/rossbugginsnhs/github-workflow-dispatcher/devcontainer
-
 jobs:
   build:
     name: Build and Publish Dev Container
@@ -36,6 +32,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Set image name
+        # Image is always lowercased; GitHub Container Registry requires lowercase names.
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${REPO_LOWER}/devcontainer" >> "$GITHUB_ENV"
 
       - name: Set up QEMU (for multi-platform builds)
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0

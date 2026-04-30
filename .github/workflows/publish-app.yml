@@ -12,10 +12,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Image is always lowercased; GitHub Container Registry requires lowercase names.
-  IMAGE_NAME: ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app
-
 jobs:
   build:
     name: Build and Publish App Container
@@ -29,6 +25,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Set image name
+        # Image is always lowercased; GitHub Container Registry requires lowercase names.
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE_NAME=ghcr.io/${REPO_LOWER}/app" >> "$GITHUB_ENV"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0

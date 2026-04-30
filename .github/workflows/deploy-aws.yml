@@ -21,7 +21,6 @@ permissions:
 
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
-  GHCR_IMAGE: ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app
 
 jobs:
   terraform-validate:
@@ -73,6 +72,12 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Set GHCR image name
+        # Image is always lowercased; GitHub Container Registry requires lowercase names.
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "GHCR_IMAGE=ghcr.io/${REPO_LOWER}/app" >> "$GITHUB_ENV"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0

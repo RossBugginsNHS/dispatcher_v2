@@ -44,7 +44,17 @@ AUTO_APPROVE=false
 BUILD_AND_PUSH_IMAGE=true
 USE_GITHUB_IMAGE=""
 
-GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app}"
+GHCR_IMAGE="${GHCR_IMAGE:-}"
+if [[ -z "$GHCR_IMAGE" ]]; then
+  REMOTE_URL=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo "")
+  if [[ "$REMOTE_URL" =~ github\.com[:/]([^/]+)/([^/.]+)(\.git)?$ ]]; then
+    _REPO_OWNER=$(echo "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')
+    _REPO_NAME=$(echo "${BASH_REMATCH[2]}" | tr '[:upper:]' '[:lower:]')
+    GHCR_IMAGE="ghcr.io/${_REPO_OWNER}/${_REPO_NAME}/app"
+  else
+    GHCR_IMAGE="ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app"
+  fi
+fi
 ECR_REPO_DEV="${ECR_REPO_DEV:-dispatcher-v2-dev-dispatcher}"
 
 usage() {
