@@ -45,6 +45,8 @@ jobs:
               --field message="docs: add GitHub issue references to FEATURES.md [skip ci]" \
               --field tree="${TREE_SHA}" \
               --field "parents[]=${PARENT_SHA}" \
+              --field "author[name]=github-actions[bot]" \
+              --field "author[email]=41898282+github-actions[bot]@users.noreply.github.com" \
               --jq '.sha')
             git update-ref HEAD "${COMMIT_SHA}"
             git push origin HEAD
