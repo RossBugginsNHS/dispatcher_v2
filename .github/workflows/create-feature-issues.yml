@@ -1,6 +1,11 @@
 name: Create Feature Issues
 
 on:
+  push:
+    branches:
+      - copilot/plan-new-features
+    paths:
+      - '.github/workflows/create-feature-issues.yml'
   workflow_dispatch:
     inputs:
       target_branch:
@@ -19,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.inputs.target_branch }}
+          ref: ${{ github.event.inputs.target_branch || github.ref_name }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create feature issues and update FEATURES.md
@@ -35,6 +40,23 @@ jobs:
             local key="$1"
             local title="$2"
             local body="$3"
+
+            # Idempotent: skip if an open issue with this title already exists
+            local existing
+            existing=$(gh issue list \
+              --repo "$REPO" \
+              --label enhancement \
+              --state open \
+              --search "\"$title\"" \
+              --json number,title \
+              --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+
+            if [[ -n "$existing" ]]; then
+              ISSUES["$key"]="$existing"
+              echo "Issue already exists #$existing: $title (skipping)"
+              return
+            fi
+
             local url
             url=$(gh issue create \
               --repo "$REPO" \
