@@ -31,21 +31,36 @@ load_env_var TF_VAR_github_app_id
 load_env_var TF_VAR_container_image
 load_env_var TF_VAR_lambda_image_uri
 load_env_var LAMBDA_IMAGE_URI
+load_env_var GHCR_IMAGE
+load_env_var GHCR_TOKEN
+load_env_var ECR_REPO_DEV
 
 PROFILE="${AWS_PROFILE:-nhs-notify-admin}"
 REGION="${AWS_REGION:-eu-west-2}"
 PLAN_ONLY=false
 AUTO_APPROVE=false
 BUILD_AND_PUSH_IMAGE=true
+USE_GITHUB_IMAGE=""
+
+GHCR_IMAGE="${GHCR_IMAGE:-ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app}"
+ECR_REPO_DEV="${ECR_REPO_DEV:-dispatcher-v2-dev-dispatcher}"
 
 usage() {
   cat <<EOF
-Usage: $0 [--plan-only] [--auto-approve] [--skip-image-build]
+Usage: $0 [--plan-only] [--auto-approve] [--skip-image-build] [--use-github-image <tag>]
 
 Options:
-  --plan-only         Run terraform plan only (no apply)
-  --auto-approve      Apply without interactive approval
-  --skip-image-build  Do not build/push a new image; use TF_VAR_* image env vars as-is
+  --plan-only              Run terraform plan only (no apply)
+  --auto-approve           Apply without interactive approval
+  --skip-image-build       Do not build/push a new image; use TF_VAR_* image env vars as-is
+  --use-github-image <tag> Pull the specified image tag from GHCR, promote it to ECR,
+                           and deploy without a local build (e.g. sha-abc1234, v1.2.3, latest)
+
+Environment variables:
+  ECR_REPO_DEV Override the dev ECR repository name (default: dispatcher-v2-dev-dispatcher)
+  GHCR_IMAGE   Override the GHCR source image base (default: $GHCR_IMAGE)
+  GHCR_TOKEN   Personal access token (or GitHub token) for GHCR login.
+               If unset, the script tries 'gh auth token' as a fallback.
 EOF
 }
 
@@ -62,6 +77,16 @@ while [[ $# -gt 0 ]]; do
     --skip-image-build)
       BUILD_AND_PUSH_IMAGE=false
       shift
+      ;;
+    --use-github-image)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "ERROR: --use-github-image requires a tag argument (e.g. sha-abc1234, v1.2.3, latest)" >&2
+        usage >&2
+        exit 1
+      fi
+      USE_GITHUB_IMAGE="$2"
+      BUILD_AND_PUSH_IMAGE=false
+      shift 2
       ;;
     -h|--help)
       usage
@@ -109,6 +134,45 @@ if [[ -n "${LAMBDA_IMAGE_URI:-}" && -z "${TF_VAR_lambda_image_uri:-}" ]]; then
   export TF_VAR_lambda_image_uri="$LAMBDA_IMAGE_URI"
 fi
 
+if [[ -n "$USE_GITHUB_IMAGE" ]]; then
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "ERROR: docker not found in PATH (required to pull and promote GHCR image)." >&2
+    exit 1
+  fi
+
+  ECR_REPO="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO_DEV}"
+  GHCR_SOURCE_IMAGE="${GHCR_IMAGE}:${USE_GITHUB_IMAGE}"
+  ECR_IMAGE_URI="${ECR_REPO}:${USE_GITHUB_IMAGE}"
+
+  echo "==> GHCR login"
+  GHCR_LOGIN_TOKEN="${GHCR_TOKEN:-}"
+  if [[ -z "$GHCR_LOGIN_TOKEN" ]] && command -v gh >/dev/null 2>&1; then
+    GHCR_LOGIN_TOKEN="$(gh auth token 2>/dev/null || true)"
+  fi
+  if [[ -n "$GHCR_LOGIN_TOKEN" ]]; then
+    # 'x-access-token' is the required username for GHCR token authentication (PAT or GitHub token)
+    echo "$GHCR_LOGIN_TOKEN" | docker login ghcr.io --username x-access-token --password-stdin
+  else
+    echo "WARN: no GHCR_TOKEN or gh CLI token found; assuming Docker is already authenticated to ghcr.io" >&2
+  fi
+
+  echo "==> ECR login"
+  AWS_PAGER="" aws ecr get-login-password --region "$REGION" \
+    | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
+
+  echo "==> Pulling image from GHCR: $GHCR_SOURCE_IMAGE"
+  docker pull "$GHCR_SOURCE_IMAGE"
+
+  echo "==> Tagging for ECR: $ECR_IMAGE_URI"
+  docker tag "$GHCR_SOURCE_IMAGE" "$ECR_IMAGE_URI"
+
+  echo "==> Pushing to ECR: $ECR_IMAGE_URI"
+  docker push "$ECR_IMAGE_URI"
+
+  export TF_VAR_container_image="$ECR_IMAGE_URI"
+  export TF_VAR_lambda_image_uri="$ECR_IMAGE_URI"
+fi
+
 if [[ "$BUILD_AND_PUSH_IMAGE" == "true" ]]; then
   if ! command -v docker >/dev/null 2>&1; then
     echo "ERROR: docker not found in PATH (required to build and publish latest image)." >&2
@@ -122,7 +186,7 @@ if [[ "$BUILD_AND_PUSH_IMAGE" == "true" ]]; then
   fi
 
   IMAGE_TAG="dev-$(date -u +%Y%m%d%H%M%S)-$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo nogit)"
-  ECR_REPO="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/dispatcher-v2-dev-dispatcher"
+  ECR_REPO="${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO_DEV}"
   IMAGE_URI="${ECR_REPO}:${IMAGE_TAG}"
 
   echo "==> Building app"
