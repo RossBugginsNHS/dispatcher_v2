@@ -5,6 +5,8 @@
   // Pinned to the SHA tag of the last successful main-branch build.
   // Update this to a semver tag (e.g. 1.0.0) after publishing a devcontainer release
   // via a `devcontainer/v*` git tag, or pin to a digest (@sha256:<digest>) for maximum reproducibility.
+  // If working in a fork, replace the registry path with your own:
+  //   ghcr.io/<your-org>/<your-repo>/devcontainer:<tag>
   "image": "ghcr.io/rossbugginsnhs/github-workflow-dispatcher/devcontainer:sha-477a57f",
   "features": {
     // Docker-in-Docker cannot be baked into the image — it requires the
