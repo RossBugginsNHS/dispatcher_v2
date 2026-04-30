@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # SHA-pinned base: mcr.microsoft.com/devcontainers/javascript-node:22
-FROM mcr.microsoft.com/devcontainers/javascript-node:22@sha256:e3e9ad58dd68386c000354e8f65fa1e66adb452bbb138b7c871c760155eac06d
+FROM mcr.microsoft.com/devcontainers/javascript-node:24@sha256:e66ed141c99e4190bf9dbf56db59f46f98cf172a341dfdd601ae6a78b23abbb3
 
 USER root
 
