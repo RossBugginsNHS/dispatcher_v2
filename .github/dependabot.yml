@@ -10,13 +10,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-  - package-ecosystem: mise
+  - package-ecosystem: docker
     directory: "/"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
   - package-ecosystem: docker
-    directory: "/"
+    directory: "/.devcontainer"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
