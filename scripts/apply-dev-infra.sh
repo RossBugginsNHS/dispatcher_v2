@@ -54,7 +54,8 @@ Options:
   --auto-approve           Apply without interactive approval
   --skip-image-build       Do not build/push a new image; use TF_VAR_* image env vars as-is
   --use-github-image <tag> Pull the specified image tag from GHCR, promote it to ECR,
-                           and deploy without a local build (e.g. sha-abc1234, v1.2.3, latest)
+                           and deploy without a local build (e.g. sha-abc1234, 1.2.3, latest)
+                           Note: release tags should be given without the 'v' prefix (e.g. 1.2.3 not v1.2.3)
 
 Environment variables:
   ECR_REPO_DEV Override the dev ECR repository name (default: dispatcher-v2-dev-dispatcher)
@@ -80,11 +81,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --use-github-image)
       if [[ $# -lt 2 || -z "$2" ]]; then
-        echo "ERROR: --use-github-image requires a tag argument (e.g. sha-abc1234, v1.2.3, latest)" >&2
+        echo "ERROR: --use-github-image requires a tag argument (e.g. sha-abc1234, 1.2.3, latest)" >&2
         usage >&2
         exit 1
       fi
-      USE_GITHUB_IMAGE="$2"
+      USE_GITHUB_IMAGE="${2#v}"
       BUILD_AND_PUSH_IMAGE=false
       shift 2
       ;;
