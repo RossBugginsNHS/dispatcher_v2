@@ -441,8 +441,9 @@ async function loadVersion() {
     if (res.ok) {
       state.data.version = await res.json();
     }
-  } catch (_) {
+  } catch (err) {
     // Non-fatal; version info will show as unknown
+    console.warn('Failed to load version info:', err);
   }
 }
 
@@ -465,7 +466,8 @@ function renderVersion() {
   const s = state.data.summary || {};
   const tag = v.version || 'unknown';
   const sha = v.imageSha || 'unknown';
-  const shortSha = sha.startsWith('sha256:') ? sha.slice(0, 19) + '…' : (sha.length > 20 ? sha.slice(0, 20) + '…' : sha);
+  // Display "sha256:" prefix (7 chars) + 12 hex chars + ellipsis for readability
+  const shortSha = sha.startsWith('sha256:') ? sha.slice(0, 19) + '\u2026' : (sha.length > 20 ? sha.slice(0, 20) + '\u2026' : sha);
   let html = '<span class="version-badge" title="Image tag">🏷 ' + esc(tag) + '</span>'
     + '<span class="sha-badge" title="' + esc(sha) + '">🔒 ' + esc(shortSha) + '</span>';
   if (s.totalEvents != null) {
