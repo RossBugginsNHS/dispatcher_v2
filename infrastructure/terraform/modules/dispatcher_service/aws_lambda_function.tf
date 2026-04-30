@@ -94,7 +94,8 @@ resource "aws_lambda_function" "admin" {
   environment {
     variables = {
       LOG_LEVEL                       = var.log_level
-      APP_VERSION                     = var.environment
+      APP_VERSION                     = coalesce(var.app_image_tag, var.environment)
+      APP_IMAGE_SHA                   = coalesce(var.app_image_sha, "unknown")
       DISPATCH_EVENTS_TABLE_NAME      = aws_dynamodb_table.dispatch_events.name
       DISPATCH_PROJECTIONS_TABLE_NAME = aws_dynamodb_table.dispatch_projections.name
     }

@@ -46,3 +46,17 @@ variable "lambda_image_uri" {
   default     = null
   nullable    = true
 }
+
+variable "app_image_tag" {
+  type        = string
+  description = "Container image tag currently deployed (e.g. v1.0.0 or sha-abc1234)"
+  default     = null
+  nullable    = true
+}
+
+variable "app_image_sha" {
+  type        = string
+  description = "Container image digest (sha256:...) currently deployed"
+  default     = null
+  nullable    = true
+}

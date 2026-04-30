@@ -9,6 +9,7 @@ const EnvSchema = z.object({
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
   APP_VERSION: z.string().default("local"),
+  APP_IMAGE_SHA: z.string().default("unknown"),
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   GITHUB_WEBHOOK_SECRET_ARN: z.string().optional(),

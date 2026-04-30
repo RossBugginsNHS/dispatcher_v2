@@ -93,6 +93,20 @@ variable "lambda_dispatcher_handler" {
   default     = "dist/lambda/dispatcher-handler.handler"
 }
 
+variable "app_image_tag" {
+  description = "Container image tag currently deployed (e.g. v1.0.0 or sha-abc1234)"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "app_image_sha" {
+  description = "Container image digest (sha256:...) currently deployed"
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "log_retention_days" {
   description = "CloudWatch Logs retention in days for Lambda and API Gateway log groups"
   type        = number

@@ -132,6 +132,8 @@ function htmlPage(): string {
     .legend span{display:inline-flex;align-items:center;gap:4px}
     .spark{height:10px;width:10px;border-radius:50%}
     .spark.success{background:#0f766e}.spark.fail{background:#ef4444}.spark.total{background:#9ca3af}
+    .version-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:600;font-family:"IBM Plex Mono",monospace;background:#e0f2fe;border:1px solid #bae6fd;color:#0c4a6e}
+    .sha-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:600;font-family:"IBM Plex Mono",monospace;background:#f3f4f6;border:1px solid #d1d5db;color:#374151}
     @media (max-width: 900px){
       .split-grid{grid-template-columns:1fr}
     }
@@ -142,7 +144,9 @@ function htmlPage(): string {
   <div style="display:flex;align-items:center;margin-bottom:8px">
     <div>
       <h1 style="margin:0;font-size:1.5rem">Dispatcher Admin</h1>
-      <div style="font-size:.8rem;color:var(--muted)" id="version-line">Loading…</div>
+      <div style="margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap" id="version-line">
+        <span class="version-badge">⏳ Loading…</span>
+      </div>
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
       <div class="refresh-bar" style="margin:0">
@@ -259,6 +263,7 @@ const state = {
   },
   data: {
     health: null,
+    version: null,
     summary: null,
     topReposLast5m: [],
     recentFailures: [],
@@ -430,6 +435,18 @@ async function loadHealth() {
     '<div class="banner-reasons">' + esc(reasons) + rateStr + lastStr + '</div>';
 }
 
+async function loadVersion() {
+  try {
+    const res = await fetch('/admin/api/version');
+    if (res.ok) {
+      state.data.version = await res.json();
+    }
+  } catch (err) {
+    // Non-fatal; version info will show as unknown
+    console.warn('Failed to load version info:', err);
+  }
+}
+
 async function loadSummary() {
   const res = await fetch('/admin/projections?minutes=' + encodeURIComponent(state.timeRange.replace('m', '')));
   if (!res.ok) {
@@ -444,16 +461,30 @@ async function loadSummary() {
   state.data.latency = data.latency || null;
 }
 
+function renderVersion() {
+  const v = state.data.version || {};
+  const s = state.data.summary || {};
+  const tag = v.version || 'unknown';
+  const sha = v.imageSha || 'unknown';
+  // Display "sha256:" prefix (7 chars) + 12 hex chars + ellipsis for readability
+  const shortSha = sha.startsWith('sha256:') ? sha.slice(0, 19) + '\u2026' : (sha.length > 20 ? sha.slice(0, 20) + '\u2026' : sha);
+  let html = '<span class="version-badge" title="Image tag">🏷 ' + esc(tag) + '</span>'
+    + '<span class="sha-badge" title="' + esc(sha) + '">🔒 ' + esc(shortSha) + '</span>';
+  if (s.totalEvents != null) {
+    html += '<span style="font-size:.8rem;color:var(--muted)">Events: ' + esc(String(s.totalEvents || 0)) + '</span>';
+  }
+  if (s.lastEventAt) {
+    html += '<span style="font-size:.8rem;color:var(--muted)">Last event: ' + esc(relTime(s.lastEventAt)) + '</span>';
+  }
+  document.getElementById('version-line').innerHTML = html;
+}
+
 function renderSummary() {
   const s = state.data.summary || {};
   const succeeded = s.triggerSucceeded || 0;
   const failed = s.triggerFailed || 0;
   const total = succeeded + failed;
   const pct = total > 0 ? Math.round(succeeded / total * 100) : null;
-
-  document.getElementById('version-line').textContent =
-    'ENV: ' + (s.appversion || 'unknown') + ' · Total events all time: ' + (s.totalEvents || 0) +
-    (s.lastEventAt ? ' · Last event: ' + relTime(s.lastEventAt) : '');
 
   document.getElementById('metrics').innerHTML = [
     '<div class="card"><div class="k">Requests Accepted</div><div class="v">' + (s.requestAccepted || 0) + '</div></div>',
@@ -640,7 +671,7 @@ document.getElementById('auto-refresh').addEventListener('change', function() {
 });
 
 async function loadAll() {
-  await Promise.allSettled([loadHealth(), loadSummary(), loadRepos(), loadRecentEvents()]);
+  await Promise.allSettled([loadHealth(), loadVersion(), loadSummary(), loadRepos(), loadRecentEvents()]);
   renderAll();
 }
 
@@ -652,6 +683,7 @@ function renderAll() {
     node.style.display = state.mode === 'intel' ? '' : 'none';
   });
   renderFilterBar();
+  renderVersion();
   renderSummary();
   renderRepos();
   renderRecentEvents();
@@ -680,6 +712,14 @@ export async function handler(event: ApiGatewayV2Event): Promise<ApiGatewayV2Res
       headers: { "content-type": "text/html; charset=utf-8" },
       body: htmlPage(),
     };
+  }
+
+  // Version API — does not require DynamoDB, so handle before the table check
+  if (event.rawPath === "/admin/api/version") {
+    return jsonResponse(200, {
+      version: env.APP_VERSION,
+      imageSha: env.APP_IMAGE_SHA,
+    });
   }
 
   if (!env.DISPATCH_PROJECTIONS_TABLE_NAME) {
