@@ -1,19 +1,12 @@
-name: Publish Dev Container
+name: Publish App Container
 
 on:
   push:
     branches: [main]
-    paths:
-      - .devcontainer/Dockerfile
-      - mise.toml
-      - mise.lock
     tags:
-      - "devcontainer/v*"
+      - "v*"
   pull_request:
-    paths:
-      - .devcontainer/Dockerfile
-      - mise.toml
-      - mise.lock
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -21,11 +14,11 @@ permissions:
 
 env:
   # Image is always lowercased; GitHub Container Registry requires lowercase names.
-  IMAGE_NAME: ghcr.io/rossbugginsnhs/github-workflow-dispatcher/devcontainer
+  IMAGE_NAME: ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app
 
 jobs:
   build:
-    name: Build and Publish Dev Container
+    name: Build and Publish App Container
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -36,9 +29,6 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-
-      - name: Set up QEMU (for multi-platform builds)
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -58,17 +48,16 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
-            type=match,pattern=devcontainer/v(\d+\.\d+\.\d+),group=1
-            type=match,pattern=devcontainer/v(\d+\.\d+),group=1
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-,format=short
 
       - name: Build and push
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          context: .devcontainer
-          file: .devcontainer/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/devcontainer/')) }}
+          context: .
+          file: Dockerfile
+          push: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

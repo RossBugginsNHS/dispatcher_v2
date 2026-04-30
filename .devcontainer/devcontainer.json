@@ -2,9 +2,10 @@
   "name": "github-workflow-dispatcher",
   // Pre-built image published to GitHub Container Registry by the
   // .github/workflows/publish-devcontainer.yml workflow.
-  // Pin this to an exact digest (e.g. @sha256:<digest>) after the first
-  // successful CI build for fully reproducible environments.
-  "image": "ghcr.io/rossbugginsnhs/github-workflow-dispatcher/devcontainer:latest",
+  // Pinned to the SHA tag of the last successful main-branch build.
+  // Update this to a semver tag (e.g. 1.0.0) after publishing a devcontainer release
+  // via a `devcontainer/v*` git tag, or pin to a digest (@sha256:<digest>) for maximum reproducibility.
+  "image": "ghcr.io/rossbugginsnhs/github-workflow-dispatcher/devcontainer:sha-477a57f",
   "features": {
     // Docker-in-Docker cannot be baked into the image — it requires the
     // Docker daemon to start at container runtime with elevated privileges.
