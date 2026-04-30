@@ -509,8 +509,17 @@ gh api -X PUT repos/<owner>/github-workflow-dispatcher/environments/prod
 
 The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-apply cycle for local use.
 
+#### Modes of operation
+
+| Mode | Command | Description |
+|---|---|---|
+| Local build + deploy | `./scripts/apply-dev-infra.sh` | Builds from source, pushes to ECR, applies Terraform |
+| Deploy a GitHub-built image | `./scripts/apply-dev-infra.sh --use-github-image <tag>` | Pulls a pre-built image from GHCR, promotes it to ECR, applies Terraform (no local build needed) |
+| Skip image build entirely | `./scripts/apply-dev-infra.sh --skip-image-build` | Uses `TF_VAR_container_image`/`TF_VAR_lambda_image_uri` as-is |
+| Plan only | `./scripts/apply-dev-infra.sh --plan-only` | Runs `terraform plan` only, no apply |
+
 ```bash
-# Full build + push + apply (interactive approval)
+# Full local build + push + apply (interactive approval)
 ./scripts/apply-dev-infra.sh
 
 # Plan only (no changes applied)
@@ -519,11 +528,35 @@ The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-appl
 # Apply without interactive approval
 ./scripts/apply-dev-infra.sh --auto-approve
 
-# Skip image build (use existing TF_VAR_container_image)
+# Skip image build (use existing TF_VAR_container_image / TF_VAR_lambda_image_uri)
 ./scripts/apply-dev-infra.sh --skip-image-build --auto-approve
+
+# Deploy a specific image already built by GitHub Actions (no local build needed)
+# Tag examples: sha-abc1234, v1.2.3, latest
+./scripts/apply-dev-infra.sh --use-github-image sha-abc1234
+./scripts/apply-dev-infra.sh --use-github-image v1.2.3 --auto-approve
+./scripts/apply-dev-infra.sh --use-github-image latest --plan-only
 ```
 
-The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `GITHUB_APP_ID`, `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_VAR_github_app_id`, `TF_VAR_container_image`, `TF_VAR_lambda_image_uri`, and `LAMBDA_IMAGE_URI` from the environment or `.env`. If `TF_VAR_github_app_id` is not set, it falls back to `GITHUB_APP_ID`. If `TF_VAR_lambda_image_uri` is not set, it falls back to `LAMBDA_IMAGE_URI` (and then `TF_VAR_container_image`).
+#### Using `--use-github-image`
+
+The `--use-github-image <tag>` option pulls the image from GHCR (`ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app:<tag>`), promotes it to the dev ECR repository, and deploys it — exactly as the `deploy-aws.yml` CI workflow does but without AWS OIDC.
+
+**GHCR authentication** — the script tries the following in order:
+
+1. The `GHCR_TOKEN` environment variable (or `.env` entry).
+2. The output of `gh auth token` (if the `gh` CLI is installed and authenticated).
+3. If neither is available, Docker must already be logged in to `ghcr.io`.
+
+```bash
+# Authenticate gh CLI (first time only)
+gh auth login
+
+# Or set a token in .env
+echo "GHCR_TOKEN=ghp_yourtoken" >> .env
+```
+
+The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `GITHUB_APP_ID`, `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_VAR_github_app_id`, `TF_VAR_container_image`, `TF_VAR_lambda_image_uri`, `LAMBDA_IMAGE_URI`, `GHCR_IMAGE`, and `GHCR_TOKEN` from the environment or `.env`. If `TF_VAR_github_app_id` is not set, it falls back to `GITHUB_APP_ID`. If `TF_VAR_lambda_image_uri` is not set, it falls back to `LAMBDA_IMAGE_URI` (and then `TF_VAR_container_image`). The `GHCR_IMAGE` variable overrides the default GHCR source registry path (useful when working from a fork).
 
 ---
 
@@ -1008,8 +1041,17 @@ gh api -X PUT repos/<owner>/github-workflow-dispatcher/environments/prod
 
 The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-apply cycle for local use.
 
+#### Modes of operation
+
+| Mode | Command | Description |
+|---|---|---|
+| Local build + deploy | `./scripts/apply-dev-infra.sh` | Builds from source, pushes to ECR, applies Terraform |
+| Deploy a GitHub-built image | `./scripts/apply-dev-infra.sh --use-github-image <tag>` | Pulls a pre-built image from GHCR, promotes it to ECR, applies Terraform (no local build needed) |
+| Skip image build entirely | `./scripts/apply-dev-infra.sh --skip-image-build` | Uses `TF_VAR_container_image`/`TF_VAR_lambda_image_uri` as-is |
+| Plan only | `./scripts/apply-dev-infra.sh --plan-only` | Runs `terraform plan` only, no apply |
+
 ```bash
-# Full build + push + apply (interactive approval)
+# Full local build + push + apply (interactive approval)
 ./scripts/apply-dev-infra.sh
 
 # Plan only (no changes applied)
@@ -1018,11 +1060,35 @@ The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-appl
 # Apply without interactive approval
 ./scripts/apply-dev-infra.sh --auto-approve
 
-# Skip image build (use existing TF_VAR_container_image)
+# Skip image build (use existing TF_VAR_container_image / TF_VAR_lambda_image_uri)
 ./scripts/apply-dev-infra.sh --skip-image-build --auto-approve
+
+# Deploy a specific image already built by GitHub Actions (no local build needed)
+# Tag examples: sha-abc1234, v1.2.3, latest
+./scripts/apply-dev-infra.sh --use-github-image sha-abc1234
+./scripts/apply-dev-infra.sh --use-github-image v1.2.3 --auto-approve
+./scripts/apply-dev-infra.sh --use-github-image latest --plan-only
 ```
 
-The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `GITHUB_APP_ID`, `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_VAR_github_app_id`, `TF_VAR_container_image`, `TF_VAR_lambda_image_uri`, and `LAMBDA_IMAGE_URI` from the environment or `.env`. If `TF_VAR_github_app_id` is not set, it falls back to `GITHUB_APP_ID`. If `TF_VAR_lambda_image_uri` is not set, it falls back to `LAMBDA_IMAGE_URI` (and then `TF_VAR_container_image`).
+#### Using `--use-github-image`
+
+The `--use-github-image <tag>` option pulls the image from GHCR (`ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app:<tag>`), promotes it to the dev ECR repository, and deploys it — exactly as the `deploy-aws.yml` CI workflow does but without AWS OIDC.
+
+**GHCR authentication** — the script tries the following in order:
+
+1. The `GHCR_TOKEN` environment variable (or `.env` entry).
+2. The output of `gh auth token` (if the `gh` CLI is installed and authenticated).
+3. If neither is available, Docker must already be logged in to `ghcr.io`.
+
+```bash
+# Authenticate gh CLI (first time only)
+gh auth login
+
+# Or set a token in .env
+echo "GHCR_TOKEN=ghp_yourtoken" >> .env
+```
+
+The script reads `AWS_PROFILE`, `AWS_REGION`, `AWS_ACCOUNT_ID`, `GITHUB_APP_ID`, `TF_STATE_BUCKET`, `TF_STATE_REGION`, `TF_VAR_github_app_id`, `TF_VAR_container_image`, `TF_VAR_lambda_image_uri`, `LAMBDA_IMAGE_URI`, `GHCR_IMAGE`, and `GHCR_TOKEN` from the environment or `.env`. If `TF_VAR_github_app_id` is not set, it falls back to `GITHUB_APP_ID`. If `TF_VAR_lambda_image_uri` is not set, it falls back to `LAMBDA_IMAGE_URI` (and then `TF_VAR_container_image`). The `GHCR_IMAGE` variable overrides the default GHCR source registry path (useful when working from a fork).
 
 ---
 
