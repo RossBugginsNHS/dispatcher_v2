@@ -1,0 +1,168 @@
+{
+  "folders": [
+    {
+      "name": "github-workflow-dispatcher",
+      "path": "."
+    }
+  ],
+  "settings": {
+    // Editor
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.rulers": [100],
+    "[typescript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[terraform]": {
+      "editor.defaultFormatter": "hashicorp.terraform",
+      "editor.formatOnSave": true
+    },
+    "[terraform-vars]": {
+      "editor.defaultFormatter": "hashicorp.terraform",
+      "editor.formatOnSave": true
+    },
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[jsonc]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[shellscript]": {
+      "editor.formatOnSave": false
+    },
+
+    // TypeScript
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+
+    // ESLint
+    "eslint.useFlatConfig": true,
+    "eslint.validate": ["typescript"],
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    },
+
+    // Terraform
+    "terraform.languageServer.enable": true,
+    "terraform.experimentalFeatures.validateOnSave": true,
+
+    // Explorer
+    "files.exclude": {
+      "**/.git": true,
+      "**/node_modules": true,
+      "**/dist": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.git": true,
+      "**/*.js.map": true
+    },
+
+    // File associations
+    "files.associations": {
+      "*.tf": "terraform",
+      "*.tfvars": "terraform-vars"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "dbaeumer.vscode-eslint",
+      "esbenp.prettier-vscode",
+      "hashicorp.terraform",
+      "ms-vscode.vscode-typescript-next",
+      "vitest.explorer",
+      "ms-azuretools.vscode-docker",
+      "amazonwebservices.aws-toolkit-vscode",
+      "editorconfig.editorconfig",
+      "streetsidesoftware.code-spell-checker"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Run dev server",
+        "type": "node",
+        "request": "launch",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["run", "dev"],
+        "cwd": "${workspaceFolder}",
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**"]
+      },
+      {
+        "name": "Run tests",
+        "type": "node",
+        "request": "launch",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["run", "test"],
+        "cwd": "${workspaceFolder}",
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**"]
+      },
+      {
+        "name": "Attach to process",
+        "type": "node",
+        "request": "attach",
+        "port": 9229,
+        "skipFiles": ["<node_internals>/**"]
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "build",
+        "type": "shell",
+        "command": "npm run build",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": "$tsc"
+      },
+      {
+        "label": "test",
+        "type": "shell",
+        "command": "npm run test",
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        },
+        "problemMatcher": []
+      },
+      {
+        "label": "test:watch",
+        "type": "shell",
+        "command": "npm run test:watch",
+        "group": "test",
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "lint",
+        "type": "shell",
+        "command": "npm run lint",
+        "group": "build",
+        "problemMatcher": "$eslint-stylish"
+      },
+      {
+        "label": "format",
+        "type": "shell",
+        "command": "npm run format",
+        "group": "build",
+        "problemMatcher": []
+      },
+      {
+        "label": "dev",
+        "type": "shell",
+        "command": "npm run dev",
+        "group": "build",
+        "isBackground": true,
+        "problemMatcher": []
+      }
+    ]
+  }
+}
