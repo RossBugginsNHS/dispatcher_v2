@@ -1,13 +1,15 @@
 {
   "name": "github-workflow-dispatcher",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22@sha256:e3e9ad58dd68386c000354e8f65fa1e66adb452bbb138b7c871c760155eac06d",
   "features": {
     "ghcr.io/devcontainers/features/terraform:1": {
       "version": "1.13.4"
     },
-    "ghcr.io/devcontainers/features/aws-cli:1": {}
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers-extra/features/mise:1": {}
   },
-  "postCreateCommand": "npm ci",
+  "postCreateCommand": "mise install && npm ci",
   "forwardPorts": [3000],
   "customizations": {
     "vscode": {
