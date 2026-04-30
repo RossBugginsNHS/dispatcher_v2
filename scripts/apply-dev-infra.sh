@@ -30,6 +30,8 @@ load_env_var TF_STATE_REGION
 load_env_var TF_VAR_github_app_id
 load_env_var TF_VAR_container_image
 load_env_var TF_VAR_lambda_image_uri
+load_env_var TF_VAR_app_image_tag
+load_env_var TF_VAR_app_image_sha
 load_env_var LAMBDA_IMAGE_URI
 load_env_var GHCR_IMAGE
 load_env_var GHCR_TOKEN
@@ -172,6 +174,18 @@ if [[ -n "$USE_GITHUB_IMAGE" ]]; then
 
   export TF_VAR_container_image="$ECR_IMAGE_URI"
   export TF_VAR_lambda_image_uri="$ECR_IMAGE_URI"
+
+  if [[ -z "${TF_VAR_app_image_tag:-}" ]]; then
+    export TF_VAR_app_image_tag="$USE_GITHUB_IMAGE"
+  fi
+
+  if [[ -z "${TF_VAR_app_image_sha:-}" ]]; then
+    _full_digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$GHCR_SOURCE_IMAGE" 2>/dev/null || true)
+    _image_sha="${_full_digest##*@}"
+    if [[ -n "$_image_sha" ]]; then
+      export TF_VAR_app_image_sha="$_image_sha"
+    fi
+  fi
 fi
 
 if [[ "$BUILD_AND_PUSH_IMAGE" == "true" ]]; then
@@ -209,6 +223,18 @@ if [[ "$BUILD_AND_PUSH_IMAGE" == "true" ]]; then
 
   export TF_VAR_container_image="$IMAGE_URI"
   export TF_VAR_lambda_image_uri="$IMAGE_URI"
+
+  if [[ -z "${TF_VAR_app_image_tag:-}" ]]; then
+    export TF_VAR_app_image_tag="$IMAGE_TAG"
+  fi
+
+  if [[ -z "${TF_VAR_app_image_sha:-}" ]]; then
+    _full_digest=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_URI" 2>/dev/null || true)
+    _image_sha="${_full_digest##*@}"
+    if [[ -n "$_image_sha" ]]; then
+      export TF_VAR_app_image_sha="$_image_sha"
+    fi
+  fi
 fi
 
 if [[ -n "${AWS_ACCOUNT_ID:-}" && -z "${TF_VAR_container_image:-}" ]]; then
@@ -231,6 +257,8 @@ fi
 
 echo "==> Terraform inputs: container_image=${TF_VAR_container_image}"
 echo "==> Terraform inputs: lambda_image=${TF_VAR_lambda_image_uri}"
+echo "==> Terraform inputs: app_image_tag=${TF_VAR_app_image_tag:-<not set>}"
+echo "==> Terraform inputs: app_image_sha=${TF_VAR_app_image_sha:-<not set>}"
 
 BACKEND_FILE="$TF_DIR/backend.hcl"
 BACKEND_ARG=()
