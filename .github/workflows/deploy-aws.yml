@@ -1,0 +1,152 @@
+name: Deploy to AWS
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      image_tag:
+        description: "App image tag to deploy (e.g. v1.0.0, sha-abc1234, or latest)"
+        required: true
+        default: latest
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  GHCR_IMAGE: ghcr.io/rossbugginsnhs/github-workflow-dispatcher/app
+
+jobs:
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, prod]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+        run: |
+          cat > backend_override.tf << 'EOF'
+          terraform {
+            backend "local" {}
+          }
+          EOF
+          terraform init -reconfigure
+
+      - name: Terraform Validate
+        working-directory: infrastructure/terraform/environments/${{ matrix.environment }}
+        run: terraform validate
+
+  deploy:
+    name: Deploy ${{ github.event.inputs.environment }}
+    needs: terraform-validate
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@19d944daaa35f0fa1d3f7f8af1d3f2e5de25c5b7 # v2
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set ECR repository
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "ECR_REPOSITORY=${{ vars.ECR_REPOSITORY_PROD }}" >> "$GITHUB_ENV"
+          else
+            echo "ECR_REPOSITORY=${{ vars.ECR_REPOSITORY_DEV }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "$ECR_REPOSITORY" --image-scanning-configuration scanOnPush=true >/dev/null
+
+      - name: Promote image from GHCR to ECR
+        env:
+          SOURCE_IMAGE: ${{ env.GHCR_IMAGE }}:${{ github.event.inputs.image_tag }}
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+        run: |
+          docker pull "$SOURCE_IMAGE"
+          ECR_IMAGE="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker tag "$SOURCE_IMAGE" "$ECR_IMAGE"
+          docker push "$ECR_IMAGE"
+          echo "IMAGE_URI=$ECR_IMAGE" >> "$GITHUB_ENV"
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+
+      - name: Terraform Init
+        working-directory: infrastructure/terraform/environments/${{ github.event.inputs.environment }}
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="key=dispatcher-v2/${{ github.event.inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ vars.TF_STATE_REGION }}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform Plan
+        working-directory: infrastructure/terraform/environments/${{ github.event.inputs.environment }}
+        env:
+          TF_VAR_container_image: ${{ env.IMAGE_URI }}
+          TF_VAR_github_app_id: ${{ secrets.APP_ID }}
+          TF_VAR_github_app_slug: org-repo-workflows-runner-alpha
+          TF_VAR_project_name: dispatcher-v2
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_create_managed_secrets: "true"
+        run: terraform plan -out tfplan
+
+      - name: Terraform Apply
+        working-directory: infrastructure/terraform/environments/${{ github.event.inputs.environment }}
+        env:
+          TF_VAR_container_image: ${{ env.IMAGE_URI }}
+          TF_VAR_github_app_id: ${{ secrets.APP_ID }}
+          TF_VAR_github_app_slug: org-repo-workflows-runner-alpha
+          TF_VAR_project_name: dispatcher-v2
+          TF_VAR_aws_region: ${{ vars.AWS_REGION }}
+          TF_VAR_create_managed_secrets: "true"
+        run: terraform apply -auto-approve tfplan
