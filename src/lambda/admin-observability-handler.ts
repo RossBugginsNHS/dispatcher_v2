@@ -161,7 +161,7 @@ function htmlPage(): string {
   <h2>Health Checks</h2>
   <div class="section" style="padding:0">
     <table class="health-table">
-      <thead><tr><th>Check</th><th>Status</th><th>Detail</th></tr></thead>
+      <thead><tr><th>Check</th><th>Status</th><th>Requirement</th><th>Detail</th></tr></thead>
       <tbody id="health-checks"></tbody>
     </table>
   </div>
@@ -559,8 +559,9 @@ function renderRecentEvents() {
 function renderHealthChecks() {
   const checks = (state.data.health && state.data.health.checks) || [];
   document.getElementById('health-checks').innerHTML = checks.map(function(check) {
-    return '<tr><td>' + esc(check.label || check.id) + '</td><td>' + statusCell(check.status) + '</td><td>' + esc(check.detail || '') + '</td></tr>';
-  }).join('') || '<tr><td colspan="3" class="empty">No checks yet</td></tr>';
+    const nfrBadge = check.nfrRef ? '<span class="badge other" title="Non-Functional Requirement ' + esc(check.nfrRef) + '">' + esc(check.nfrRef) + '</span>' : '—';
+    return '<tr><td>' + esc(check.label || check.id) + '</td><td>' + statusCell(check.status) + '</td><td>' + nfrBadge + '</td><td>' + esc(check.detail || '') + '</td></tr>';
+  }).join('') || '<tr><td colspan="4" class="empty">No checks yet</td></tr>';
 }
 
 function renderBusinessSignals() {

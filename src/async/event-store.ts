@@ -82,6 +82,8 @@ export type HealthCheck = {
   label: string;
   status: "green" | "amber" | "red" | "unknown";
   detail: string;
+  /** Reference to the Non-Functional Requirement this check validates (e.g. "NFR-02"). */
+  nfrRef?: string;
 };
 
 export type LatencySummary = {
@@ -771,6 +773,7 @@ export function computeHealthReport(params: {
       lastEventMs === undefined
         ? "No last-event timestamp available"
         : `Last event ${Math.round(lastEventMs / 60000)} min ago (green <= 15, amber <= 45, red > 45).`,
+    nfrRef: "NFR-11",
   });
 
   const triggerStatus = successStatus(successRate);
@@ -782,6 +785,7 @@ export function computeHealthReport(params: {
       successRate === undefined
         ? "No trigger outcomes yet"
         : `${Math.round(successRate * 100)}% (green >= 95%, amber >= 80%, red < 80%).`,
+    nfrRef: "NFR-04",
   });
 
   const planStatus = statusByThreshold(pendingPlan, 3, 10);
@@ -790,6 +794,7 @@ export function computeHealthReport(params: {
     label: "Planning backlog",
     status: planStatus,
     detail: `${pendingPlan} requests waiting to be planned (green <= 3, amber <= 10, red > 10).`,
+    nfrRef: "NFR-01",
   });
 
   const dispatchStatus = statusByThreshold(pendingDispatch, 8, 25);
@@ -798,15 +803,17 @@ export function computeHealthReport(params: {
     label: "Dispatch backlog",
     status: dispatchStatus,
     detail: `${pendingDispatch} queued targets without outcome (green <= 8, amber <= 25, red > 25).`,
+    nfrRef: "NFR-01",
   });
 
   if (latency?.count && latency.p95Seconds !== undefined) {
-    const latencyStatus = statusByThreshold(latency.p95Seconds, 420, 900);
+    const latencyStatus = statusByThreshold(latency.p95Seconds, 60, 120);
     checks.push({
       id: "end_to_end_latency",
       label: "End-to-end latency (request to first success)",
       status: latencyStatus,
-      detail: `P95 ${latency.p95Seconds}s over ${latency.count} deliveries (green <= 420s, amber <= 900s, red > 900s).`,
+      detail: `P95 ${latency.p95Seconds}s over ${latency.count} deliveries (green <= 60s, amber <= 120s, red > 120s). NFR-02 target: ≤30s Lambda processing time.`,
+      nfrRef: "NFR-02",
     });
   } else {
     checks.push({
@@ -814,6 +821,7 @@ export function computeHealthReport(params: {
       label: "End-to-end latency (request to first success)",
       status: "unknown",
       detail: "Not enough successful delivery journeys yet to compute latency.",
+      nfrRef: "NFR-02",
     });
   }
 
