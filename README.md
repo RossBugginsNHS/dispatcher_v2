@@ -532,9 +532,9 @@ The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-appl
 ./scripts/apply-dev-infra.sh --skip-image-build --auto-approve
 
 # Deploy a specific image already built by GitHub Actions (no local build needed)
-# Tag examples: sha-abc1234, v1.2.3, latest
+# Tag examples: sha-abc1234, 1.2.3, latest (release tags do NOT use the 'v' prefix)
 ./scripts/apply-dev-infra.sh --use-github-image sha-abc1234
-./scripts/apply-dev-infra.sh --use-github-image v1.2.3 --auto-approve
+./scripts/apply-dev-infra.sh --use-github-image 1.2.3 --auto-approve
 ./scripts/apply-dev-infra.sh --use-github-image latest --plan-only
 ```
 
@@ -1064,9 +1064,9 @@ The deploy script at `scripts/apply-dev-infra.sh` wraps the full build-push-appl
 ./scripts/apply-dev-infra.sh --skip-image-build --auto-approve
 
 # Deploy a specific image already built by GitHub Actions (no local build needed)
-# Tag examples: sha-abc1234, v1.2.3, latest
+# Tag examples: sha-abc1234, 1.2.3, latest (release tags do NOT use the 'v' prefix)
 ./scripts/apply-dev-infra.sh --use-github-image sha-abc1234
-./scripts/apply-dev-infra.sh --use-github-image v1.2.3 --auto-approve
+./scripts/apply-dev-infra.sh --use-github-image 1.2.3 --auto-approve
 ./scripts/apply-dev-infra.sh --use-github-image latest --plan-only
 ```
 
