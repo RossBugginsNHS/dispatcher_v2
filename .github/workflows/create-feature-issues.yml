@@ -24,7 +24,7 @@ jobs:
 
       - name: Create feature issues and update FEATURES.md
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.ISSUE_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
