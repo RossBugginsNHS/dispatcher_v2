@@ -21,22 +21,37 @@ const SUPPORTED_VARIABLES = new Set([
 ]);
 
 function resolveVariable(variable: string, context: SourceContext): string {
+  let value: string;
   switch (variable) {
     case "source.sha":
-      return context.sha;
+      value = context.sha;
+      break;
     case "source.head_branch":
-      return context.head_branch;
+      value = context.head_branch;
+      break;
     case "source.run_id":
-      return context.run_id;
+      value = context.run_id;
+      break;
     case "source.run_url":
-      return context.run_url;
+      value = context.run_url;
+      break;
     case "source.repo":
-      return context.repo;
+      value = context.repo;
+      break;
     case "source.workflow":
-      return context.workflow;
+      value = context.workflow;
+      break;
     default:
       throw new Error(`Unknown template variable "{{ ${variable} }}"`);
   }
+
+  if (value === "") {
+    throw new Error(
+      `Template variable "{{ ${variable} }}" resolved to an empty string; the source field may not be available for this event type`,
+    );
+  }
+
+  return value;
 }
 
 function sanitizeInputValue(key: string, value: string): { sanitized: string } | { error: string } {
@@ -72,10 +87,11 @@ export function resolveInputs(
   for (const [key, template] of Object.entries(templateInputs)) {
     // Detect unknown template variables before substitution
     for (const match of template.matchAll(TEMPLATE_PATTERN)) {
-      const variable = match[1].trim();
-      if (!SUPPORTED_VARIABLES.has(variable)) {
+      const variable = match[1];
+      if (variable === undefined) continue;
+      if (!SUPPORTED_VARIABLES.has(variable.trim())) {
         return {
-          error: `Unknown template variable "{{ ${variable} }}" in input "${key}". Supported variables: ${[...SUPPORTED_VARIABLES].join(", ")}`,
+          error: `Unknown template variable "{{ ${variable.trim()} }}" in input "${key}". Supported variables: ${[...SUPPORTED_VARIABLES].join(", ")}`,
         };
       }
     }

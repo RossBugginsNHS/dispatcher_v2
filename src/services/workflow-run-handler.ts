@@ -94,7 +94,10 @@ export function createWorkflowRunHandler(
 
     const candidateTargets = matchOutboundTargets(result.config, owner, workflow_run.path);
 
-    // Build source context for template resolution
+    // Build source context for template resolution.
+    // Fields that are absent from the payload default to empty strings; the template resolver
+    // treats empty resolved values as errors, so dispatches using missing fields will be denied
+    // with an `inputs_template_error` reason and a clear log message.
     const sourceContext: SourceContext = {
       sha: workflow_run.head_sha ?? "",
       head_branch: workflow_run.head_branch ?? "",
@@ -128,6 +131,9 @@ export function createWorkflowRunHandler(
         "Dispatch denied: template resolution failed for target inputs",
       );
     }
+    // Note: the full error message from `reason` is captured in the warning above.
+    // The denied target record uses the `inputs_template_error` reason code, which is
+    // sufficient for the event store and issue body.
 
     const targetGuardrails = filterTargetsWithGuardrails(
       resolvedTargets,

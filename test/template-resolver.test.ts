@@ -107,6 +107,13 @@ describe("resolveInputs", () => {
     expect((result as { error: string }).error).toMatch(/control characters/i);
   });
 
+  it("returns an error when a template variable resolves to an empty string", () => {
+    const contextWithEmptySha: SourceContext = { ...baseContext, sha: "" };
+    const result = resolveInputs({ git_sha: "{{ source.sha }}" }, contextWithEmptySha);
+    expect(result).toHaveProperty("error");
+    expect((result as { error: string }).error).toMatch(/empty string/i);
+  });
+
   it("stops at the first unknown variable when multiple inputs are defined", () => {
     const result = resolveInputs(
       {
