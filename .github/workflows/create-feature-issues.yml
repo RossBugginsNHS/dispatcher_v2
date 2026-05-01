@@ -1,0 +1,54 @@
+name: Create Feature Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_branch:
+        description: 'Branch to commit the updated FEATURES.md to'
+        required: true
+        default: 'copilot/plan-new-features'
+
+permissions:
+  issues: write
+  contents: write
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.inputs.target_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create issues and update FEATURES.md
+        env:
+          GH_TOKEN: ${{ secrets.ISSUE_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: python3 scripts/create-feature-issues.py
+
+      - name: Commit updated FEATURES.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git add FEATURES.md
+          if git diff --staged --quiet; then
+            echo "No changes to FEATURES.md — already up to date."
+          else
+            # Create a signed commit via the GitHub API.
+            # Commits created through the API are signed by GitHub automatically.
+            PARENT_SHA=$(git rev-parse HEAD)
+            TREE_SHA=$(git write-tree)
+            COMMIT_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/git/commits" \
+              --method POST \
+              --field message="docs: add GitHub issue references to FEATURES.md [skip ci]" \
+              --field tree="${TREE_SHA}" \
+              --field "parents[]=${PARENT_SHA}" \
+              --field "author[name]=github-actions[bot]" \
+              --field "author[email]=41898282+github-actions[bot]@users.noreply.github.com" \
+              --jq '.sha')
+            git update-ref HEAD "${COMMIT_SHA}"
+            git push origin HEAD
+            echo "FEATURES.md committed and pushed (signed commit ${COMMIT_SHA})."
+          fi
