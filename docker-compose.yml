@@ -1,0 +1,35 @@
+# Local development compose file.
+#
+# Runs the dispatcher in server mode (Fastify HTTP server) so you can forward
+# GitHub webhook deliveries to it via a tunnelling tool such as ngrok or Cloudflare Tunnel.
+#
+# Quickstart:
+#   1. Copy .env.example to .env and fill in GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY,
+#      and GITHUB_WEBHOOK_SECRET.
+#   2. docker compose up --build
+#   3. Start your tunnel pointing to http://localhost:3000
+#   4. Configure your GitHub App webhook URL to the tunnel URL + /webhooks/github
+#
+# The /health endpoint can be used to verify the container is running:
+#   curl http://localhost:3000/health
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: server
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
