@@ -18,6 +18,7 @@ export type SourceGuardrailDeniedReason =
   | "source_workflow_not_allowlisted"
   | "source_repo_not_allowlisted"
   | "source_from_fork"
+  | "source_head_repository_unverifiable"
   | "source_conclusion_not_allowed";
 
 export type TargetGuardrailDeniedReason =
@@ -60,7 +61,10 @@ export function evaluateSourceWorkflowRun(
   }
 
   const headRepository = payload.workflow_run.head_repository?.full_name?.toLowerCase();
-  if (headRepository && headRepository !== sourceRepoFullName) {
+  if (!headRepository) {
+    return { allowed: false, reason: "source_head_repository_unverifiable" };
+  }
+  if (headRepository !== sourceRepoFullName) {
     return { allowed: false, reason: "source_from_fork" };
   }
 

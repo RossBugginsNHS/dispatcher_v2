@@ -85,6 +85,7 @@ describe("evaluateSourceWorkflowRun", () => {
           path: ".github/workflows/ci.yml",
           head_branch: "main",
           conclusion: "skipped",
+          head_repository: { full_name: "org/repo" },
         },
       },
       { ...baseSettings, allowedSourceConclusions: "success,skipped" },
@@ -102,12 +103,83 @@ describe("evaluateSourceWorkflowRun", () => {
           path: ".github/workflows/ci.yml",
           head_branch: "main",
           conclusion: "failure",
+          head_repository: { full_name: "org/repo" },
         },
       },
       { ...baseSettings, allowedSourceConclusions: "" },
     );
 
     expect(result).toEqual({ allowed: true });
+  });
+
+  it("rejects runs where head_repository is absent (unverifiable fork status)", () => {
+    const result = evaluateSourceWorkflowRun(
+      {
+        repository: { owner: { login: "org" }, name: "repo", default_branch: "main" },
+        workflow_run: {
+          name: "CI",
+          path: ".github/workflows/ci.yml",
+          head_branch: "main",
+          conclusion: "success",
+        },
+      },
+      baseSettings,
+    );
+
+    expect(result).toEqual({ allowed: false, reason: "source_head_repository_unverifiable" });
+  });
+
+  it("rejects runs where head_repository full_name is missing (unverifiable fork status)", () => {
+    const result = evaluateSourceWorkflowRun(
+      {
+        repository: { owner: { login: "org" }, name: "repo", default_branch: "main" },
+        workflow_run: {
+          name: "CI",
+          path: ".github/workflows/ci.yml",
+          head_branch: "main",
+          conclusion: "success",
+          head_repository: {},
+        },
+      },
+      baseSettings,
+    );
+
+    expect(result).toEqual({ allowed: false, reason: "source_head_repository_unverifiable" });
+  });
+
+  it("allows legitimate runs where head_repository matches the source repository", () => {
+    const result = evaluateSourceWorkflowRun(
+      {
+        repository: { owner: { login: "org" }, name: "repo", default_branch: "main" },
+        workflow_run: {
+          name: "CI",
+          path: ".github/workflows/ci.yml",
+          head_branch: "main",
+          conclusion: "success",
+          head_repository: { full_name: "org/repo" },
+        },
+      },
+      baseSettings,
+    );
+
+    expect(result).toEqual({ allowed: true });
+  });
+
+  it("rejects runs even when default-branch enforcement is disabled but head_repository is absent", () => {
+    const result = evaluateSourceWorkflowRun(
+      {
+        repository: { owner: { login: "org" }, name: "repo", default_branch: "main" },
+        workflow_run: {
+          name: "CI",
+          path: ".github/workflows/ci.yml",
+          head_branch: "feature-branch",
+          conclusion: "success",
+        },
+      },
+      { ...baseSettings, enforceSourceDefaultBranch: false },
+    );
+
+    expect(result).toEqual({ allowed: false, reason: "source_head_repository_unverifiable" });
   });
 });
 
@@ -178,7 +250,13 @@ describe("filterTargetsWithGuardrails", () => {
     const allowed = evaluateSourceWorkflowRun(
       {
         repository: { owner: { login: "my-org" }, name: "repo-a", default_branch: "main" },
-        workflow_run: { name: "CI", path: "ci.yml", head_branch: "main", conclusion: "success" },
+        workflow_run: {
+          name: "CI",
+          path: "ci.yml",
+          head_branch: "main",
+          conclusion: "success",
+          head_repository: { full_name: "my-org/repo-a" },
+        },
       },
       { ...baseSettings, sourceRepoAllowlist: "my-org/*" },
     );
