@@ -13,6 +13,8 @@ This is a rewrite of dispatcher v1 focused exclusively on dispatching behaviour.
   - [Non-Functional Requirements](#non-functional-requirements)
 - [How It Works](#how-it-works)
 - [dispatching.yml Contract](#dispatchingyml-contract)
+  - [Per-target ref override](#per-target-ref-override)
+  - [Workflow inputs passthrough](#workflow-inputs-passthrough)
 - [Architecture](#architecture)
   - [Lambda Functions](#lambda-functions)
   - [AWS Infrastructure](#aws-infrastructure)
@@ -54,6 +56,9 @@ Workflow runs originating from a fork must be rejected to prevent untrusted cont
 
 #### FR-06 — Per-target ref override
 Each outbound target in `dispatching.yml` may optionally specify a `ref` (branch, tag, or SHA) to dispatch to. When a `ref` is provided on a target, it overrides the source run's `head_branch`. When omitted, the source run's `head_branch` is used, falling back to `DEFAULT_DISPATCH_REF`.
+
+#### FR-19 — Template-based inputs passthrough
+Outbound targets in `dispatching.yml` may declare an `inputs` map to forward context from the source run to the dispatched workflow. Values may be literal strings or `{{ source.* }}` template expressions (see [Template Variables](#template-variables)). The target repository's inbound rule must explicitly list every sent key in `accept_inputs`; any mismatch blocks the dispatch. If no `inputs` are declared, `accept_inputs` is not evaluated.
 
 #### FR-07 — Allowlist filtering with wildcard support
 Operators may restrict which source repositories, target repositories, and source workflow files participate in dispatching using comma-separated allowlists. Entries support `*` wildcard patterns (e.g. `my-org/*` to allow all repositories in an organisation). An empty allowlist means all values are permitted.
@@ -122,6 +127,7 @@ The asynchronous Lambda/SQS/EventBridge architecture must scale horizontally wit
 #### NFR-06 — Security — input validation
 - All `dispatching.yml` files must be parsed through a strict Zod schema. Unknown or duplicate YAML keys must be rejected.
 - Webhook payloads must be validated for required fields before any business logic is executed.
+- Template-resolved input values must be sanitized: control characters are rejected, and values are capped at 1024 characters.
 - Allowlists, guardrails, and inbound/outbound YAML rules provide layered defence-in-depth against misconfigured or malicious dispatch chains.
 
 #### NFR-07 — Security — supply chain
@@ -183,6 +189,10 @@ outbound:
       - repository: org/target-repo
         workflow: cd.yml        # workflow to trigger in the target repo
         ref: release            # optional: override the ref to dispatch to (defaults to source head_branch)
+        inputs:                 # optional: input values to forward to the dispatched workflow
+          git_sha: "{{ source.sha }}"           # resolved from the source run
+          triggered_by: "{{ source.run_url }}"  # resolved from the source run
+          environment: production               # literal passthrough
 
 # Target repository: declares which sources are permitted to trigger it
 inbound:
@@ -191,6 +201,10 @@ inbound:
       workflow: ci.yml
     targets:
       - workflow: cd.yml
+        accept_inputs:          # optional: explicitly accept named inputs from the source
+          - git_sha
+          - triggered_by
+          - environment
 ```
 
 **Authorization is bilateral.** A dispatch only proceeds if:
@@ -202,6 +216,41 @@ Missing or invalid `dispatching.yml` files are treated as having no rules (no-op
 ### Per-target `ref` override
 
 Each outbound target may include an optional `ref` field. When present, the dispatcher uses this ref instead of the source run's `head_branch` when calling `workflow_dispatch`. This is useful for pinning a deployment target to a stable release branch regardless of where CI ran.
+
+### Workflow inputs passthrough
+
+Outbound targets may include an optional `inputs` map. Each value is either a literal string or a `{{ source.* }}` template expression that is resolved at dispatch time from the source run context.
+
+#### Template Variables
+
+| Expression | Resolved value |
+|---|---|
+| `{{ source.sha }}` | The commit SHA that triggered the source workflow run |
+| `{{ source.head_branch }}` | The branch name of the source run |
+| `{{ source.run_id }}` | The numeric GitHub Actions run ID |
+| `{{ source.run_url }}` | The URL to the source workflow run on GitHub |
+| `{{ source.repo }}` | The full `owner/repo` name of the source repository |
+| `{{ source.workflow }}` | The workflow file name or path of the source run |
+
+Literal values (no `{{ }}` syntax) are passed through unchanged.
+
+**Dispatch is denied** (`inputs_template_error`) if:
+- An unknown `{{ source.* }}` variable is referenced.
+- A template variable resolves to an empty string (field absent from the webhook payload).
+- A resolved value contains control characters or exceeds 1024 characters.
+
+#### Two-way inputs authorization
+
+If a source sends inputs, the target's inbound rule **must** declare `accept_inputs` listing every sent key. If any sent key is absent from `accept_inputs`, or if `accept_inputs` is not declared at all, the dispatch is denied with `inputs_not_accepted`. Multiple inbound rules for the same source/target pair are all evaluated; the dispatch is authorized if at least one matching rule accepts all sent keys.
+
+If no `inputs` are sent, `accept_inputs` is irrelevant and is not checked.
+
+#### New denial reasons
+
+| Reason | When |
+|---|---|
+| `inputs_not_accepted` | Sent key not in target's `accept_inputs`, or `accept_inputs` absent |
+| `inputs_template_error` | Unknown variable, empty resolution, or sanitization failure |
 
 ---
 

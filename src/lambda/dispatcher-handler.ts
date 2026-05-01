@@ -39,6 +39,7 @@ export async function handler(event: SqsEvent): Promise<SqsBatchResponse> {
             owner: message.target.owner,
             repo: message.target.repo,
             workflow: message.target.workflow,
+            ...(message.target.inputs !== undefined ? { inputs: message.target.inputs } : {}),
           },
         ],
         message.dispatchRef,

@@ -2,6 +2,7 @@ import type { App } from "@octokit/app";
 import type { FastifyBaseLogger } from "fastify";
 
 import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-matcher/match.js";
+import { resolveInputs, type SourceContext } from "../domain/template-resolver/resolve.js";
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "../github/types.js";
 import { authorizeDispatchTargets } from "./authorization-service.js";
@@ -92,8 +93,58 @@ export function createWorkflowRunHandler(
     );
 
     const candidateTargets = matchOutboundTargets(result.config, owner, workflow_run.path);
+
+    // Build source context for template resolution.
+    // Fields that are absent from the payload default to empty strings; the template resolver
+    // treats empty resolved values as errors, so dispatches using missing fields will be denied
+    // with an `inputs_template_error` reason and a clear log message.
+    const sourceContext: SourceContext = {
+      sha: workflow_run.head_sha ?? "",
+      head_branch: workflow_run.head_branch ?? "",
+      run_id: String(workflow_run.id ?? ""),
+      run_url: workflow_run.html_url ?? "",
+      repo: sourceRepoFullName,
+      workflow: sourceWorkflow,
+    };
+
+    // Resolve template inputs; targets with unresolvable variables are denied immediately
+    const resolvedTargets: typeof candidateTargets = [];
+    const templateErrors: Array<{ target: (typeof candidateTargets)[0]; reason: string }> = [];
+
+    for (const target of candidateTargets) {
+      const hasInputs = target.inputs !== undefined && Object.keys(target.inputs).length > 0;
+
+      if (!hasInputs) {
+        // Omit any empty inputs object so downstream treats it as "no inputs sent"
+        resolvedTargets.push({
+          owner: target.owner,
+          repo: target.repo,
+          workflow: target.workflow,
+          ...(target.ref !== undefined ? { ref: target.ref } : {}),
+        });
+        continue;
+      }
+
+      const resolution = resolveInputs(target.inputs!, sourceContext);
+      if ("error" in resolution) {
+        templateErrors.push({ target, reason: resolution.error });
+      } else {
+        resolvedTargets.push({ ...target, inputs: resolution.resolved });
+      }
+    }
+
+    for (const { target, reason } of templateErrors) {
+      runLog.warn(
+        { owner, repo, target, reason },
+        "Dispatch denied: template resolution failed for target inputs",
+      );
+    }
+    // The detailed error message is captured in the warning log above.
+    // The event store records `status: "denied"` without a denial reason field,
+    // so `inputs_template_error` is carried only in the log and the issue body (via DeniedDispatchTarget.reason).
+
     const targetGuardrails = filterTargetsWithGuardrails(
-      candidateTargets,
+      resolvedTargets,
       sourceRepoFullName,
       sourceWorkflow,
       options.guardrails,
@@ -114,7 +165,11 @@ export function createWorkflowRunHandler(
       sourceWorkflow,
       async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
     );
-    const deniedTargets = [...targetGuardrails.denied, ...authorization.denied];
+    const templateDenied = templateErrors.map(({ target }) => ({
+      target,
+      reason: "inputs_template_error" as const,
+    }));
+    const deniedTargets = [...templateDenied, ...targetGuardrails.denied, ...authorization.denied];
 
     runLog.info(
       {

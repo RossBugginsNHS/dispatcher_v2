@@ -5,6 +5,7 @@ export type ResolvedDispatchTarget = {
   repo: string;
   workflow: string;
   ref?: string;
+  inputs?: Record<string, string>;
 };
 
 export function matchOutboundTargets(
@@ -24,6 +25,7 @@ export function matchOutboundTargets(
           repo,
           workflow: normalizeWorkflowName(target.workflow),
           ...(target.ref !== undefined ? { ref: target.ref } : {}),
+          ...(target.inputs !== undefined ? { inputs: target.inputs } : {}),
         };
       }),
     );
