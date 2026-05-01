@@ -48,7 +48,9 @@ Dispatches must only fire for workflow runs that completed with an explicitly pe
 By default, dispatches must only be triggered by runs on the source repository's default branch. This behaviour is configurable and can be disabled for testing environments.
 
 #### FR-05 — Fork-sourced run rejection
-Workflow runs originating from a fork (i.e. `head_repository` differs from the source repository) must be rejected to prevent untrusted contributors from influencing cross-repository dispatch.
+Workflow runs originating from a fork must be rejected to prevent untrusted contributors from influencing cross-repository dispatch. Rejection criteria:
+- `head_repository.full_name` differs from the source repository full name (explicit fork detected), **or**
+- `head_repository` is absent or its `full_name` is missing (fork status cannot be verified — fail-closed).
 
 #### FR-06 — Per-target ref override
 Each outbound target in `dispatching.yml` may optionally specify a `ref` (branch, tag, or SHA) to dispatch to. When a `ref` is provided on a target, it overrides the source run's `head_branch`. When omitted, the source run's `head_branch` is used, falling back to `DEFAULT_DISPATCH_REF`.
@@ -412,7 +414,7 @@ For local use, copy `.env.example` to `.env` and fill in at minimum `GITHUB_APP_
   - Current replay cache is in-memory per runtime instance; for stronger multi-instance guarantees, add a shared store (for example DynamoDB TTL).
 - Dispatch planner enforces guard rails before authorization:
   - default-branch-only source runs (configurable),
-  - fork-sourced run rejection (head repository differs from source repository),
+  - fork-sourced run rejection: blocks if `head_repository` differs from the source repository **or** if `head_repository` is absent (fail-closed — fork status cannot be verified),
   - conclusion filtering — only runs with permitted conclusions trigger dispatch (default: `success`),
   - optional source/target/workflow allowlists (exact match or `*` wildcard patterns),
   - self-dispatch block (`source repo + workflow` to itself),

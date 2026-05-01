@@ -58,7 +58,7 @@
 - **Impact:** unauthorized cross-repo dispatch planning/triggering.  
 - **Fix:** enforce default-branch source runs (configurable), source allowlist, workflow allowlist, and fork-source rejection.  
 - **Verification:** run `test/dispatch-guardrails.test.ts` and validate non-default/fork payloads are rejected.
-- **Status:** **Fix applied**
+- **Status:** **Fix applied** (extended by Finding 17)
 
 ### 2) YAML-driven dispatch fan-out could be abused
 - **Severity:** High  
@@ -257,6 +257,52 @@
 - **Fix:** run `terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_amd64 -platform=darwin_arm64` in each environment and module directory and commit the generated `.terraform.lock.hcl` files. Added `terraform` ecosystem entries to `dependabot.yml` for all three Terraform roots so provider version bumps are tracked automatically.  
 - **Verification:** confirm `.terraform.lock.hcl` exists in each Terraform root; verify CI `terraform init` output shows "Using previously-installed" rather than resolving fresh versions.
 - **Status:** **Partially applied (Dependabot tracking added; lock files still need to be generated and committed — see follow-up backlog)**
+
+### 17) Fork detection was fail-open when `head_repository` is absent
+- **Severity:** Medium  
+- **Category:** Process / Fork trust  
+- **Evidence:** `src/services/dispatch-guardrails.ts` (`evaluateSourceWorkflowRun`)  
+- **Exploit scenario:**  
+  The original fork check only blocked runs where `workflow_run.head_repository.full_name` was **present and different** from the source repository. If `head_repository` (or its `full_name` sub-field) was absent from the payload — which can occur in certain GitHub API edge cases — the fork check was silently bypassed. When combined with `ENFORCE_SOURCE_DEFAULT_BRANCH=false` (a configuration operators may choose for testing environments), an attacker who crafted a valid HMAC-signed payload (i.e., had access to the webhook secret, representing a separate compromise, or if GitHub itself sent a payload without the field) with no `head_repository` field could potentially trigger dispatch evaluation as if the run originated from the source repo's default branch.  
+
+  **Layered context — why is this still a concern even with HMAC validation?**  
+  HMAC validation confirms the payload came from GitHub's servers with the correct secret. However, it does **not** guarantee that every optional field within the payload is present; GitHub may omit `head_repository` in undocumented edge cases or future API changes. Relying solely on the presence/absence check (fail-open semantics) creates a brittle trust assumption.
+
+- **Impact:** Fork-sourced runs could bypass fork detection if `head_repository` is absent from the payload and default-branch enforcement is disabled. Combined with a bilateral YAML authorization check this would still require the target repo's `inbound` config to list the attacker's fork — making direct cross-repo dispatch exploitation unlikely but not impossible in misconfigured environments.  
+- **Fix:** Changed fork detection to **fail-closed**: the guardrail now returns `source_head_repository_unverifiable` if `head_repository` or its `full_name` is absent, rather than silently allowing the run. The check now requires `head_repository.full_name` to be **explicitly present and equal** to the source repository full name.  
+  ```typescript
+  // Before (fail-open)
+  if (headRepository && headRepository !== sourceRepoFullName) {
+    return { allowed: false, reason: "source_from_fork" };
+  }
+
+  // After (fail-closed)
+  if (!headRepository) {
+    return { allowed: false, reason: "source_head_repository_unverifiable" };
+  }
+  if (headRepository !== sourceRepoFullName) {
+    return { allowed: false, reason: "source_from_fork" };
+  }
+  ```
+- **Verification:** run `npx vitest run test/dispatch-guardrails.test.ts` — tests for `source_head_repository_unverifiable` (absent `head_repository`, absent `full_name` sub-field, and absent `head_repository` with `enforceSourceDefaultBranch: false`) must all pass.
+- **Status:** **Fix applied**
+
+---
+
+## Fork security: complete threat model
+
+The following summarises every identified fork-related attack vector and its mitigation.
+
+| Attack vector | Mitigation |
+|---|---|
+| Fork installs the GitHub App and sends its own webhook events | HMAC signature binds events to the registered webhook secret — only GitHub can produce valid signatures. Bilateral YAML auth then requires the **target** repo's `inbound` rules to list the fork's identity, which they will not. |
+| Fork opens a PR to the upstream repo; PR triggers an upstream workflow run | The `head_repository` in the resulting `workflow_run.completed` event will be the **fork's repo**, not the upstream. The guardrail rejects this with `source_from_fork`. |
+| Fork opens a PR to the upstream repo; upstream workflow runs on default branch (merge commit / PR-merge triggers) | `head_repository` will still reflect the fork's repo for any run triggered by or attributed to fork code. The guardrail rejects this with `source_from_fork`. |
+| `head_repository` is absent or its `full_name` is missing from the payload | The guardrail now rejects this with `source_head_repository_unverifiable` (fail-closed). Previously this was silently allowed (fail-open). |
+| Workflow runs on a non-default branch (e.g., a feature branch pushed to the upstream) | Rejected with `source_not_default_branch` (default behaviour, configurable). |
+| Malicious `dispatching.yml` in a fork's PR modifies the upstream config | `dispatching.yml` is always fetched from the **default branch** of the source repo via `repos.getContent` (no `ref` parameter), so PR branch changes to `dispatching.yml` have no effect until merged and reviewed. |
+| Fork's branch name is used as `dispatchRef` for target repos | The fork check blocks the run before `dispatchRef` is ever used. Additionally, target repos specify their own `ref` overrides in `dispatching.yml`. |
+| Compromised fork manipulates target fan-out size | All target guardrails (self-dispatch block, duplicate suppression, max-targets cap) apply regardless of source. Bilateral auth provides a final gate. |
 
 ---
 
