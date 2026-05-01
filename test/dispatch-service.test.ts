@@ -126,4 +126,61 @@ describe("executeWorkflowDispatches", () => {
     expect(createWorkflowDispatch).toHaveBeenCalledTimes(2);
     expect(results).toEqual([{ target: targets[0], status: "success", attempts: 2 }]);
   });
+
+  it("passes resolved inputs to createWorkflowDispatch when target has inputs", async () => {
+    const createWorkflowDispatch = vi.fn().mockResolvedValue({});
+
+    const client = {
+      actions: { createWorkflowDispatch },
+    } as unknown as DispatchActionsClient;
+
+    const targets = [
+      {
+        owner: "acme",
+        repo: "target-a",
+        workflow: "deploy.yml",
+        inputs: { git_sha: "abc123", environment: "production" },
+      },
+    ];
+
+    const log = createLogger() as never;
+
+    await executeWorkflowDispatches(client, targets, "main", log, {
+      maxRetries: 0,
+      retryBaseDelayMs: 0,
+    });
+
+    expect(createWorkflowDispatch).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "target-a",
+      workflow_id: "deploy.yml",
+      ref: "main",
+      inputs: { git_sha: "abc123", environment: "production" },
+    });
+  });
+
+  it("does not include inputs in createWorkflowDispatch call when target has no inputs", async () => {
+    const createWorkflowDispatch = vi.fn().mockResolvedValue({});
+
+    const client = {
+      actions: { createWorkflowDispatch },
+    } as unknown as DispatchActionsClient;
+
+    const targets = [{ owner: "acme", repo: "target-a", workflow: "deploy.yml" }];
+
+    const log = createLogger() as never;
+
+    await executeWorkflowDispatches(client, targets, "main", log, {
+      maxRetries: 0,
+      retryBaseDelayMs: 0,
+    });
+
+    expect(createWorkflowDispatch).toHaveBeenCalledWith({
+      owner: "acme",
+      repo: "target-a",
+      workflow_id: "deploy.yml",
+      ref: "main",
+    });
+    expect(createWorkflowDispatch.mock.calls[0]?.[0]).not.toHaveProperty("inputs");
+  });
 });

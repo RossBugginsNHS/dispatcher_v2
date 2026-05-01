@@ -103,4 +103,162 @@ describe("authorizeDispatchTargets", () => {
       },
     ]);
   });
+
+  it("allows target when sent inputs are all listed in accept_inputs", async () => {
+    const targetWithInputs: ResolvedDispatchTarget = {
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+      inputs: { git_sha: "abc123", environment: "production" },
+    };
+
+    const result = await authorizeDispatchTargets(
+      [targetWithInputs],
+      "source-owner/source-repo",
+      "source-repo",
+      "ci.yml",
+      () =>
+        Promise.resolve({
+          found: true,
+          config: {
+            outbound: [],
+            inbound: [
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml", accept_inputs: ["git_sha", "environment"] }],
+              },
+            ],
+          },
+        }),
+    );
+
+    expect(result.allowed).toEqual([targetWithInputs]);
+    expect(result.denied).toEqual([]);
+  });
+
+  it("denies target when inputs are sent but accept_inputs is not declared", async () => {
+    const targetWithInputs: ResolvedDispatchTarget = {
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+      inputs: { git_sha: "abc123" },
+    };
+
+    const result = await authorizeDispatchTargets(
+      [targetWithInputs],
+      "source-owner/source-repo",
+      "source-repo",
+      "ci.yml",
+      () =>
+        Promise.resolve({
+          found: true,
+          config: {
+            outbound: [],
+            inbound: [
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml" }],
+              },
+            ],
+          },
+        }),
+    );
+
+    expect(result.allowed).toEqual([]);
+    expect(result.denied).toEqual([{ target: targetWithInputs, reason: "inputs_not_accepted" }]);
+  });
+
+  it("denies target when a sent input key is not in accept_inputs", async () => {
+    const targetWithInputs: ResolvedDispatchTarget = {
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+      inputs: { git_sha: "abc123", extra_key: "value" },
+    };
+
+    const result = await authorizeDispatchTargets(
+      [targetWithInputs],
+      "source-owner/source-repo",
+      "source-repo",
+      "ci.yml",
+      () =>
+        Promise.resolve({
+          found: true,
+          config: {
+            outbound: [],
+            inbound: [
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml", accept_inputs: ["git_sha"] }],
+              },
+            ],
+          },
+        }),
+    );
+
+    expect(result.allowed).toEqual([]);
+    expect(result.denied).toEqual([{ target: targetWithInputs, reason: "inputs_not_accepted" }]);
+  });
+
+  it("allows target when no inputs are sent even if accept_inputs is declared", async () => {
+    const targetNoInputs: ResolvedDispatchTarget = {
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+    };
+
+    const result = await authorizeDispatchTargets(
+      [targetNoInputs],
+      "source-owner/source-repo",
+      "source-repo",
+      "ci.yml",
+      () =>
+        Promise.resolve({
+          found: true,
+          config: {
+            outbound: [],
+            inbound: [
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml", accept_inputs: ["git_sha"] }],
+              },
+            ],
+          },
+        }),
+    );
+
+    expect(result.allowed).toEqual([targetNoInputs]);
+    expect(result.denied).toEqual([]);
+  });
+
+  it("allows target when no inputs are sent and accept_inputs is not declared", async () => {
+    const targetNoInputs: ResolvedDispatchTarget = {
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+    };
+
+    const result = await authorizeDispatchTargets(
+      [targetNoInputs],
+      "source-owner/source-repo",
+      "source-repo",
+      "ci.yml",
+      () =>
+        Promise.resolve({
+          found: true,
+          config: {
+            outbound: [],
+            inbound: [
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml" }],
+              },
+            ],
+          },
+        }),
+    );
+
+    expect(result.allowed).toEqual([targetNoInputs]);
+    expect(result.denied).toEqual([]);
+  });
 });

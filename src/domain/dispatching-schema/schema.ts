@@ -5,6 +5,7 @@ const OutboundTargetSchema = z.object({
   repository: z.string().min(1),
   workflow: z.string().min(1),
   ref: z.string().min(1).optional(),
+  inputs: z.record(z.string().min(1), z.string()).optional(),
 }).strict();
 
 const OutboundRuleSchema = z.object({
@@ -16,6 +17,7 @@ const OutboundRuleSchema = z.object({
 
 const InboundTargetSchema = z.object({
   workflow: z.string().min(1),
+  accept_inputs: z.array(z.string().min(1)).optional(),
 }).strict();
 
 const InboundRuleSchema = z.object({
@@ -33,7 +35,9 @@ export const DispatchingConfigSchema = z.object({
 
 export type DispatchingConfig = z.infer<typeof DispatchingConfigSchema>;
 export type OutboundRule = z.infer<typeof OutboundRuleSchema>;
+export type OutboundTarget = z.infer<typeof OutboundTargetSchema>;
 export type InboundRule = z.infer<typeof InboundRuleSchema>;
+export type InboundTarget = z.infer<typeof InboundTargetSchema>;
 
 export function parseDispatchingConfig(rawYaml: string): DispatchingConfig {
   const parsed: unknown = parseYaml(rawYaml, { uniqueKeys: true, merge: false });

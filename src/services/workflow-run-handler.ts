@@ -2,6 +2,7 @@ import type { App } from "@octokit/app";
 import type { FastifyBaseLogger } from "fastify";
 
 import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-matcher/match.js";
+import { resolveInputs, type SourceContext } from "../domain/template-resolver/resolve.js";
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "../github/types.js";
 import { authorizeDispatchTargets } from "./authorization-service.js";
@@ -92,8 +93,44 @@ export function createWorkflowRunHandler(
     );
 
     const candidateTargets = matchOutboundTargets(result.config, owner, workflow_run.path);
+
+    // Build source context for template resolution
+    const sourceContext: SourceContext = {
+      sha: workflow_run.head_sha ?? "",
+      head_branch: workflow_run.head_branch ?? "",
+      run_id: String(workflow_run.id ?? ""),
+      run_url: workflow_run.html_url ?? "",
+      repo: sourceRepoFullName,
+      workflow: sourceWorkflow,
+    };
+
+    // Resolve template inputs; targets with unresolvable variables are denied immediately
+    const resolvedTargets: typeof candidateTargets = [];
+    const templateErrors: Array<{ target: (typeof candidateTargets)[0]; reason: string }> = [];
+
+    for (const target of candidateTargets) {
+      if (!target.inputs || Object.keys(target.inputs).length === 0) {
+        resolvedTargets.push(target);
+        continue;
+      }
+
+      const resolution = resolveInputs(target.inputs, sourceContext);
+      if ("error" in resolution) {
+        templateErrors.push({ target, reason: resolution.error });
+      } else {
+        resolvedTargets.push({ ...target, inputs: resolution.resolved });
+      }
+    }
+
+    for (const { target, reason } of templateErrors) {
+      runLog.warn(
+        { owner, repo, target, reason },
+        "Dispatch denied: template resolution failed for target inputs",
+      );
+    }
+
     const targetGuardrails = filterTargetsWithGuardrails(
-      candidateTargets,
+      resolvedTargets,
       sourceRepoFullName,
       sourceWorkflow,
       options.guardrails,
@@ -114,7 +151,11 @@ export function createWorkflowRunHandler(
       sourceWorkflow,
       async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
     );
-    const deniedTargets = [...targetGuardrails.denied, ...authorization.denied];
+    const templateDenied = templateErrors.map(({ target }) => ({
+      target,
+      reason: "inputs_template_error" as const,
+    }));
+    const deniedTargets = [...templateDenied, ...targetGuardrails.denied, ...authorization.denied];
 
     runLog.info(
       {

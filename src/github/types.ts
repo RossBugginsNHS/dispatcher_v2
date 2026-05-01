@@ -16,6 +16,7 @@ export interface WorkflowRunPayload {
     path: string;
     html_url?: string;
     head_branch?: string | null;
+    head_sha?: string;
     conclusion: string | null;
     head_repository?: {
       full_name?: string;

@@ -7,6 +7,8 @@ export type DeniedDispatchTarget = {
     | "missing_target_config"
     | "invalid_target_config"
     | "inbound_not_authorized"
+    | "inputs_not_accepted"
+    | "inputs_template_error"
     | "target_repo_not_allowlisted"
     | "self_dispatch_blocked"
     | "duplicate_target"
@@ -34,19 +36,17 @@ export async function authorizeDispatchTargets(
       continue;
     }
 
-    if (
-      !isInboundAuthorized(
-        targetConfig.config,
-        sourceRepoFullName,
-        sourceRepoName,
-        sourceWorkflow,
-        target.workflow,
-      )
-    ) {
-      denied.push({
-        target,
-        reason: "inbound_not_authorized",
-      });
+    const authResult = checkInboundAuthorization(
+      targetConfig.config,
+      sourceRepoFullName,
+      sourceRepoName,
+      sourceWorkflow,
+      target.workflow,
+      target.inputs,
+    );
+
+    if (authResult !== "authorized") {
+      denied.push({ target, reason: authResult });
       continue;
     }
 
@@ -56,30 +56,63 @@ export async function authorizeDispatchTargets(
   return { allowed, denied };
 }
 
-function isInboundAuthorized(
-  targetConfig: { inbound: Array<{ source: { repository: string; workflow: string }; targets: Array<{ workflow: string }> }> },
+type AuthorizationResult = "authorized" | "inbound_not_authorized" | "inputs_not_accepted";
+
+function checkInboundAuthorization(
+  targetConfig: {
+    inbound: Array<{
+      source: { repository: string; workflow: string };
+      targets: Array<{ workflow: string; accept_inputs?: string[] }>;
+    }>;
+  },
   sourceRepoFullName: string,
   sourceRepoName: string,
   sourceWorkflow: string,
   targetWorkflow: string,
-): boolean {
+  sentInputs: Record<string, string> | undefined,
+): AuthorizationResult {
   const normalizedSourceWorkflow = normalizeWorkflowName(sourceWorkflow);
   const normalizedTargetWorkflow = normalizeWorkflowName(targetWorkflow);
 
-  return targetConfig.inbound.some((rule) => {
+  for (const rule of targetConfig.inbound) {
     const sourceRepositoryMatches =
       rule.source.repository === sourceRepoName || rule.source.repository === sourceRepoFullName;
 
     if (!sourceRepositoryMatches) {
-      return false;
+      continue;
     }
 
     if (normalizeWorkflowName(rule.source.workflow) !== normalizedSourceWorkflow) {
-      return false;
+      continue;
     }
 
-    return rule.targets.some(
+    const matchingTarget = rule.targets.find(
       (allowedTarget) => normalizeWorkflowName(allowedTarget.workflow) === normalizedTargetWorkflow,
     );
-  });
+
+    if (!matchingTarget) {
+      continue;
+    }
+
+    // Rule found — check inputs acceptance
+    const sentKeys = sentInputs !== undefined ? Object.keys(sentInputs) : [];
+
+    if (sentKeys.length > 0) {
+      // Inputs are being sent: the target must explicitly declare accept_inputs
+      if (matchingTarget.accept_inputs === undefined) {
+        return "inputs_not_accepted";
+      }
+
+      const acceptedSet = new Set(matchingTarget.accept_inputs);
+      for (const key of sentKeys) {
+        if (!acceptedSet.has(key)) {
+          return "inputs_not_accepted";
+        }
+      }
+    }
+
+    return "authorized";
+  }
+
+  return "inbound_not_authorized";
 }

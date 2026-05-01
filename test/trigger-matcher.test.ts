@@ -61,6 +61,48 @@ describe("matchOutboundTargets", () => {
     expect(targets[1]?.ref).toBeUndefined();
   });
 
+  it("passes through inputs from outbound target", () => {
+    const config: DispatchingConfig = {
+      outbound: [
+        {
+          source: { workflow: "ci.yml" },
+          targets: [
+            {
+              repository: "target-a",
+              workflow: "deploy.yml",
+              inputs: { git_sha: "{{ source.sha }}", environment: "production" },
+            },
+          ],
+        },
+      ],
+      inbound: [],
+    };
+
+    const targets = matchOutboundTargets(config, "source-owner", "ci.yml");
+
+    expect(targets[0]).toEqual({
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+      inputs: { git_sha: "{{ source.sha }}", environment: "production" },
+    });
+  });
+
+  it("omits inputs when outbound target has no inputs defined", () => {
+    const config: DispatchingConfig = {
+      outbound: [
+        {
+          source: { workflow: "ci.yml" },
+          targets: [{ repository: "target-a", workflow: "deploy.yml" }],
+        },
+      ],
+      inbound: [],
+    };
+
+    const targets = matchOutboundTargets(config, "source-owner", "ci.yml");
+    expect(targets[0]?.inputs).toBeUndefined();
+  });
+
   it("returns no targets when workflow does not match any outbound rule", () => {
     const config: DispatchingConfig = {
       outbound: [
