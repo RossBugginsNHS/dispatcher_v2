@@ -19,6 +19,7 @@ export type DispatchTargetWorkMessage = {
     owner: string;
     repo: string;
     workflow: string;
+    inputs?: Record<string, string>;
   };
 };
 
