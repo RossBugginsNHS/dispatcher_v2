@@ -112,12 +112,20 @@ export function createWorkflowRunHandler(
     const templateErrors: Array<{ target: (typeof candidateTargets)[0]; reason: string }> = [];
 
     for (const target of candidateTargets) {
-      if (!target.inputs || Object.keys(target.inputs).length === 0) {
-        resolvedTargets.push(target);
+      const hasInputs = target.inputs !== undefined && Object.keys(target.inputs).length > 0;
+
+      if (!hasInputs) {
+        // Omit any empty inputs object so downstream treats it as "no inputs sent"
+        resolvedTargets.push({
+          owner: target.owner,
+          repo: target.repo,
+          workflow: target.workflow,
+          ...(target.ref !== undefined ? { ref: target.ref } : {}),
+        });
         continue;
       }
 
-      const resolution = resolveInputs(target.inputs, sourceContext);
+      const resolution = resolveInputs(target.inputs!, sourceContext);
       if ("error" in resolution) {
         templateErrors.push({ target, reason: resolution.error });
       } else {
@@ -131,9 +139,9 @@ export function createWorkflowRunHandler(
         "Dispatch denied: template resolution failed for target inputs",
       );
     }
-    // Note: the full error message from `reason` is captured in the warning above.
-    // The denied target record uses the `inputs_template_error` reason code, which is
-    // sufficient for the event store and issue body.
+    // The detailed error message is captured in the warning log above.
+    // The event store records `status: "denied"` without a denial reason field,
+    // so `inputs_template_error` is carried only in the log and the issue body (via DeniedDispatchTarget.reason).
 
     const targetGuardrails = filterTargetsWithGuardrails(
       resolvedTargets,

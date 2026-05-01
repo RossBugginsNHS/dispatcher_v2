@@ -62,6 +62,7 @@ function sanitizeInputValue(key: string, value: string): { sanitized: string } |
   }
   // Reject control characters (newlines, null bytes, etc.) which could enable log injection
   // or break downstream YAML/JSON handling. Printable ASCII and Unicode are permitted.
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1F\x7F]/.test(value)) {
     return { error: `Resolved value for input "${key}" contains disallowed control characters` };
   }

@@ -73,6 +73,9 @@ function checkInboundAuthorization(
 ): AuthorizationResult {
   const normalizedSourceWorkflow = normalizeWorkflowName(sourceWorkflow);
   const normalizedTargetWorkflow = normalizeWorkflowName(targetWorkflow);
+  const sentKeys = sentInputs !== undefined ? Object.keys(sentInputs) : [];
+
+  let anyRuleMatched = false;
 
   for (const rule of targetConfig.inbound) {
     const sourceRepositoryMatches =
@@ -94,25 +97,25 @@ function checkInboundAuthorization(
       continue;
     }
 
-    // Rule found — check inputs acceptance
-    const sentKeys = sentInputs !== undefined ? Object.keys(sentInputs) : [];
+    anyRuleMatched = true;
 
+    // Check inputs acceptance for this matching rule
     if (sentKeys.length > 0) {
       // Inputs are being sent: the target must explicitly declare accept_inputs
       if (matchingTarget.accept_inputs === undefined) {
-        return "inputs_not_accepted";
+        continue;
       }
 
       const acceptedSet = new Set(matchingTarget.accept_inputs);
-      for (const key of sentKeys) {
-        if (!acceptedSet.has(key)) {
-          return "inputs_not_accepted";
-        }
+      if (sentKeys.every((key) => acceptedSet.has(key))) {
+        return "authorized";
       }
+      // This rule doesn't fully accept the sent keys; try remaining rules
+      continue;
     }
 
     return "authorized";
   }
 
-  return "inbound_not_authorized";
+  return anyRuleMatched ? "inputs_not_accepted" : "inbound_not_authorized";
 }

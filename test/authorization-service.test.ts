@@ -261,4 +261,42 @@ describe("authorizeDispatchTargets", () => {
     expect(result.allowed).toEqual([targetNoInputs]);
     expect(result.denied).toEqual([]);
   });
+
+  it("allows target when a second matching rule accepts the sent inputs even if the first does not", async () => {
+    const targetWithInputs: ResolvedDispatchTarget = {
+      owner: "source-owner",
+      repo: "target-a",
+      workflow: "deploy.yml",
+      inputs: { git_sha: "abc123", environment: "staging" },
+    };
+
+    const result = await authorizeDispatchTargets(
+      [targetWithInputs],
+      "source-owner/source-repo",
+      "source-repo",
+      "ci.yml",
+      () =>
+        Promise.resolve({
+          found: true,
+          config: {
+            outbound: [],
+            inbound: [
+              // First rule: only accepts git_sha — not sufficient
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml", accept_inputs: ["git_sha"] }],
+              },
+              // Second rule: accepts both keys — sufficient
+              {
+                source: { repository: "source-repo", workflow: "ci.yml" },
+                targets: [{ workflow: "deploy.yml", accept_inputs: ["git_sha", "environment"] }],
+              },
+            ],
+          },
+        }),
+    );
+
+    expect(result.allowed).toEqual([targetWithInputs]);
+    expect(result.denied).toEqual([]);
+  });
 });

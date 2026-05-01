@@ -47,7 +47,9 @@ export async function executeWorkflowDispatches(
             repo: target.repo,
             workflow_id: target.workflow,
             ref: target.ref ?? ref,
-            ...(target.inputs !== undefined ? { inputs: target.inputs } : {}),
+            ...(target.inputs !== undefined && Object.keys(target.inputs).length > 0
+              ? { inputs: target.inputs }
+              : {}),
           });
           break;
         } catch (error) {
