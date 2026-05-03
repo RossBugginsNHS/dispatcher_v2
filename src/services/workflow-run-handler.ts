@@ -2,18 +2,13 @@ import type { App } from "@octokit/app";
 import type { FastifyBaseLogger } from "fastify";
 
 import { matchOutboundTargets, normalizeWorkflowName } from "../domain/trigger-matcher/match.js";
-import { resolveInputs, type SourceContext } from "../domain/template-resolver/resolve.js";
 import { fetchDispatchingConfig, type RepoContentsClient } from "../github/content.js";
 import type { WorkflowRunEventContext, WorkflowRunPayload } from "../github/types.js";
-import { authorizeDispatchTargets } from "./authorization-service.js";
 import { executeWorkflowDispatches, type DispatchActionsClient } from "./dispatch-service.js";
-import {
-  evaluateSourceWorkflowRun,
-  filterTargetsWithGuardrails,
-  type GuardrailSettings,
-} from "./dispatch-guardrails.js";
+import { evaluateSourceWorkflowRun, type GuardrailSettings } from "./dispatch-guardrails.js";
 import type { DispatchEventStore } from "./dispatch-event-store.js";
 import { createDispatchResultIssue, type IssueClient } from "./issue-service.js";
+import { buildSourceContext, planDispatches } from "./dispatch-planner.js";
 
 type WorkflowRunHandlerOptions = {
   defaultDispatchRef: string;
@@ -94,63 +89,7 @@ export function createWorkflowRunHandler(
 
     const candidateTargets = matchOutboundTargets(result.config, owner, workflow_run.path);
 
-    // Build source context for template resolution.
-    // Fields that are absent from the payload default to empty strings; the template resolver
-    // treats empty resolved values as errors, so dispatches using missing fields will be denied
-    // with an `inputs_template_error` reason and a clear log message.
-    const sourceContext: SourceContext = {
-      sha: workflow_run.head_sha ?? "",
-      head_branch: workflow_run.head_branch ?? "",
-      run_id: String(workflow_run.id ?? ""),
-      run_url: workflow_run.html_url ?? "",
-      repo: sourceRepoFullName,
-      workflow: sourceWorkflow,
-    };
-
-    // Resolve template inputs; targets with unresolvable variables are denied immediately
-    const resolvedTargets: typeof candidateTargets = [];
-    const templateErrors: Array<{ target: (typeof candidateTargets)[0]; reason: string }> = [];
-
-    for (const target of candidateTargets) {
-      const hasInputs = target.inputs !== undefined && Object.keys(target.inputs).length > 0;
-
-      if (!hasInputs) {
-        // Omit any empty inputs object so downstream treats it as "no inputs sent"
-        resolvedTargets.push({
-          owner: target.owner,
-          repo: target.repo,
-          workflow: target.workflow,
-          ...(target.ref !== undefined ? { ref: target.ref } : {}),
-        });
-        continue;
-      }
-
-      const resolution = resolveInputs(target.inputs!, sourceContext);
-      if ("error" in resolution) {
-        templateErrors.push({ target, reason: resolution.error });
-      } else {
-        resolvedTargets.push({ ...target, inputs: resolution.resolved });
-      }
-    }
-
-    for (const { target, reason } of templateErrors) {
-      runLog.warn(
-        { owner, repo, target, reason },
-        "Dispatch denied: template resolution failed for target inputs",
-      );
-    }
-    // The detailed error message is captured in the warning log above.
-    // The event store records `status: "denied"` without a denial reason field,
-    // so `inputs_template_error` is carried only in the log and the issue body (via DeniedDispatchTarget.reason).
-
-    const targetGuardrails = filterTargetsWithGuardrails(
-      resolvedTargets,
-      sourceRepoFullName,
-      sourceWorkflow,
-      options.guardrails,
-    );
-
-    if (targetGuardrails.allowed.length === 0) {
+    if (candidateTargets.length === 0) {
       runLog.info(
         { owner, repo, workflow: sourceWorkflow },
         "No outbound targets matched this workflow run",
@@ -158,18 +97,25 @@ export function createWorkflowRunHandler(
       return;
     }
 
-    const authorization = await authorizeDispatchTargets(
-      targetGuardrails.allowed,
+    // Build source context for template resolution.
+    // Fields that are absent from the payload default to empty strings; the template resolver
+    // treats empty resolved values as errors, so dispatches using missing fields will be denied
+    // with an `inputs_template_error` reason and a clear log message.
+    const sourceContext = buildSourceContext(payload, sourceRepoFullName, sourceWorkflow);
+
+    const plan = await planDispatches({
+      candidates: candidateTargets,
+      sourceContext,
       sourceRepoFullName,
-      repo,
+      sourceRepoName: repo,
       sourceWorkflow,
-      async (targetOwner, targetRepo) => fetchDispatchingConfig(octokit, targetOwner, targetRepo),
-    );
-    const templateDenied = templateErrors.map(({ target }) => ({
-      target,
-      reason: "inputs_template_error" as const,
-    }));
-    const deniedTargets = [...templateDenied, ...targetGuardrails.denied, ...authorization.denied];
+      guardrailSettings: options.guardrails,
+      loadTargetConfig: async (targetOwner, targetRepo) =>
+        fetchDispatchingConfig(octokit, targetOwner, targetRepo),
+      log: runLog,
+    });
+
+    const { allowed: allowedTargets, denied: deniedTargets } = plan;
 
     runLog.info(
       {
@@ -177,7 +123,7 @@ export function createWorkflowRunHandler(
         repo,
         sourceWorkflow,
         candidateTargets: candidateTargets.length,
-        allowedTargets: authorization.allowed,
+        allowedTargets: allowedTargets,
         deniedTargets: deniedTargets,
       },
       "Dispatch target authorization evaluated",
@@ -186,7 +132,7 @@ export function createWorkflowRunHandler(
     const dispatchRef = payload.workflow_run.head_branch ?? options.defaultDispatchRef;
     const dispatches = await executeWorkflowDispatches(
       octokit,
-      authorization.allowed,
+      allowedTargets,
       dispatchRef,
       runLog,
       {
